@@ -1,0 +1,1 @@
+ALTER TABLE "Routine" ADD COLUMN "protected" BOOLEAN NOT NULL DEFAULT false;

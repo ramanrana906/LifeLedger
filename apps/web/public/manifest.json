@@ -1,0 +1,17 @@
+{
+  "name": "Life Ledger",
+  "short_name": "Life Ledger",
+  "description": "A calm personal operating system for goals, health, finance, learning, and reflection.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#F8FAFC",
+  "theme_color": "#4F46E5",
+  "icons": [
+    {
+      "src": "/life-ledger-logo.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

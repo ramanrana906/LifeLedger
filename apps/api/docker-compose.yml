@@ -1,0 +1,17 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: journal-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: journal
+      POSTGRES_USER: journal
+      POSTGRES_PASSWORD: journal
+    ports:
+      - "5433:5432"
+    volumes:
+      - journal-postgres-data:/var/lib/postgresql/data
+      - ./prisma/migrations:/migrations:ro
+
+volumes:
+  journal-postgres-data:

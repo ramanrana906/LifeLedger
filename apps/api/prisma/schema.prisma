@@ -1,0 +1,618 @@
+generator client {
+  provider     = "prisma-client"
+  output       = "../src/generated/prisma"
+  moduleFormat = "cjs"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model User {
+  id           String   @id @default(uuid()) @db.Uuid
+  email        String   @unique @db.VarChar(255)
+  name         String   @db.VarChar(255)
+  passwordHash String   @db.VarChar(255)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  profile              Profile?
+  stats                UserStats?
+  xpEvents             XpEvent[]
+  enabledModules       EnabledModule[]
+  focusCycles          FocusCycle[]
+  goals                Goal[]
+  journalEntries       JournalEntry[]
+  lifeGoals            LifeGoal[]
+  weeklyGoals          WeeklyGoal[]
+  dailyGoals           DailyGoal[]
+  debts                Debt[]
+  incomeSources        IncomeSource[]
+  savings              Savings?
+  financeMonths        FinanceMonth[]
+  financeTransactions  FinanceTransaction[]
+  debtPayments         DebtPayment[]
+  assets               Asset[]
+  assetSnapshots       AssetSnapshot[]
+  netWorthSnapshots    NetWorthSnapshot[]
+  weightLogs           WeightLog[]
+  dietLogs             DietLog[]
+  workoutLogs          WorkoutLog[]
+  sleepLogs            SleepLog[]
+  relationshipCheckins RelationshipCheckin[]
+  importantDates       ImportantDate[]
+  skills               Skill[]
+  learningSessions     LearningSession[]
+  habits               Habit[]
+  routines             Routine[]
+  routineSteps         RoutineStep[]
+  routineStepCompletions RoutineStepCompletion[]
+  routineDayLogs       RoutineDayLog[]
+  weeklyReflections    WeeklyReflection[]
+  journalGoalTags      JournalGoalTag[]
+  journalHabitTags     JournalHabitTag[]
+}
+
+/// A flexible metric definition and its current value. Both JSON fields map to
+/// PostgreSQL JSONB, allowing metrics with different shapes to be stored and
+/// queried without schema changes.
+model CustomMetric {
+  id         String   @id @default(uuid()) @db.Uuid
+  key        String   @unique @db.VarChar(100)
+  name       String   @db.VarChar(255)
+  definition Json     @db.JsonB
+  value      Json     @db.JsonB
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([updatedAt])
+}
+
+model Profile {
+  id            String   @id @db.Uuid
+  displayName   String?  @db.VarChar(255)
+  unitsWeight   String   @default("kg") @db.VarChar(20)
+  unitsCurrency String   @default("$") @db.VarChar(20)
+  goalWeight    Decimal? @db.Decimal(10, 2)
+  onboarded     Boolean  @default(false)
+  createdAt     DateTime @default(now())
+  user          User     @relation(fields: [id], references: [id], onDelete: Cascade)
+}
+
+model UserStats {
+  userId        String    @id @db.Uuid
+  level         Int       @default(1)
+  xp            Int       @default(0)
+  currentStreak Int       @default(0)
+  longestStreak Int       @default(0)
+  freezeTokens  Int       @default(0)
+  lastActiveDate DateTime? @db.Date
+  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model XpEvent {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @db.Uuid
+  source    String   @db.VarChar(100)
+  amount    Int
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+}
+
+model EnabledModule {
+  userId  String  @db.Uuid
+  module  String  @db.VarChar(50)
+  enabled Boolean @default(true)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([userId, module])
+}
+
+model FocusCycle {
+  id              String   @id @default(uuid()) @db.Uuid
+  userId          String   @db.Uuid
+  startDate       DateTime @db.Date
+  endDate         DateTime @db.Date
+  cycleLengthDays Int      @default(90)
+  focusAreas      String[]
+  focusGoalId     String?  @db.Uuid
+  createdAt       DateTime @default(now())
+  completedAt     DateTime?
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  focusGoal       Goal?    @relation(fields: [focusGoalId], references: [id], onDelete: SetNull)
+
+  @@index([userId, startDate])
+  @@index([userId, endDate])
+  @@index([focusGoalId])
+}
+
+model Goal {
+  id                String           @id @default(uuid()) @db.Uuid
+  userId            String           @db.Uuid
+  parentGoalId      String?          @db.Uuid
+  level             String           @db.VarChar(20)
+  title             String
+  targetMetric      String?
+  targetDescription String?
+  definitionOfDone  String?
+  whyThisMatters    String?
+  targetDate        DateTime?        @db.Date
+  completed         Boolean          @default(false)
+  createdAt         DateTime         @default(now())
+  deletedAt         DateTime?
+  user              User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  parentGoal        Goal?            @relation("GoalTree", fields: [parentGoalId], references: [id], onDelete: SetNull)
+  childGoals        Goal[]           @relation("GoalTree")
+  linkedHabits      Habit[]
+  linkedSkills      Skill[]
+  linkedDebts       Debt[]
+  linkedSavings     Savings[]
+  linkedRoutines    Routine[]
+  routineDailySteps  RoutineStep[]   @relation("RoutineDailyGoal")
+  routineWeeklySteps RoutineStep[]   @relation("RoutineWeeklyGoal")
+  routineDayLogs     RoutineDayLog[]
+  journalTags       JournalGoalTag[]
+  focusCycles       FocusCycle[]
+
+  @@index([userId, level])
+  @@index([parentGoalId])
+  @@index([targetDate])
+}
+
+model JournalEntry {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @db.Uuid
+  entryDate DateTime @default(now()) @db.Date
+  mood      String   @db.VarChar(50)
+  body      String   @default("")
+  createdAt DateTime @default(now())
+  deletedAt DateTime?
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  goalTags  JournalGoalTag[]
+  habitTags JournalHabitTag[]
+
+  @@unique([userId, entryDate])
+  @@index([userId, entryDate])
+}
+
+model LifeGoal {
+  id          String       @id @default(uuid()) @db.Uuid
+  userId      String       @db.Uuid
+  title       String
+  description String?
+  completed   Boolean      @default(false)
+  createdAt   DateTime     @default(now())
+  deletedAt   DateTime?
+  user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  weeklyGoals WeeklyGoal[]
+}
+
+model WeeklyGoal {
+  id         String    @id @default(uuid()) @db.Uuid
+  userId     String    @db.Uuid
+  lifeGoalId String?   @db.Uuid
+  title      String
+  weekStart  DateTime  @db.Date
+  completed  Boolean   @default(false)
+  createdAt  DateTime  @default(now())
+  deletedAt  DateTime?
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  lifeGoal   LifeGoal? @relation(fields: [lifeGoalId], references: [id], onDelete: SetNull)
+
+  @@index([userId, weekStart])
+}
+
+model DailyGoal {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @db.Uuid
+  entryDate DateTime @default(now()) @db.Date
+  title     String
+  completed Boolean  @default(false)
+  createdAt DateTime @default(now())
+  deletedAt DateTime?
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, entryDate])
+}
+
+model Debt {
+  id           String        @id @default(uuid()) @db.Uuid
+  userId       String        @db.Uuid
+  linkedGoalId String?       @db.Uuid
+  name         String
+  type         String        @default("other")
+  principal    Decimal       @db.Decimal(12, 2)
+  balance      Decimal       @db.Decimal(12, 2)
+  interestRate Decimal       @default(0) @db.Decimal(5, 2)
+  tenureMonths Int?
+  emiAmount    Decimal?      @db.Decimal(12, 2)
+  dueDay       Int?
+  lastEmiAppliedOn DateTime? @db.Date
+  createdAt    DateTime      @default(now())
+  deletedAt    DateTime?
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  linkedGoal   Goal?         @relation(fields: [linkedGoalId], references: [id], onDelete: SetNull)
+  payments     DebtPayment[]
+  financeTransactions FinanceTransaction[]
+
+  @@index([linkedGoalId])
+}
+
+model IncomeSource {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @db.Uuid
+  name      String
+  amount    Decimal  @db.Decimal(12, 2)
+  frequency String   @default("monthly")
+  createdAt DateTime @default(now())
+  deletedAt DateTime?
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+}
+
+model Asset {
+  id           String          @id @default(uuid()) @db.Uuid
+  userId       String          @db.Uuid
+  name         String
+  type         String          @default("other")
+  currentValue Decimal         @db.Decimal(12, 2)
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+  deletedAt    DateTime?
+  user         User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  snapshots    AssetSnapshot[]
+
+  @@index([userId, updatedAt])
+}
+
+model AssetSnapshot {
+  id           String   @id @default(uuid()) @db.Uuid
+  userId       String   @db.Uuid
+  assetId      String?  @db.Uuid
+  value        Decimal  @db.Decimal(12, 2)
+  snapshotDate DateTime @default(now()) @db.Date
+  createdAt    DateTime @default(now())
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  asset        Asset?   @relation(fields: [assetId], references: [id], onDelete: SetNull)
+
+  @@index([userId, snapshotDate])
+  @@index([assetId, snapshotDate])
+}
+
+model NetWorthSnapshot {
+  id           String   @id @default(uuid()) @db.Uuid
+  userId       String   @db.Uuid
+  totalAssets  Decimal  @db.Decimal(12, 2)
+  liabilities  Decimal  @db.Decimal(12, 2)
+  netWorth     Decimal  @db.Decimal(12, 2)
+  snapshotDate DateTime @default(now()) @db.Date
+  createdAt    DateTime @default(now())
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, snapshotDate])
+}
+
+model Savings {
+  userId       String   @id @db.Uuid
+  linkedGoalId String?  @db.Uuid
+  balance      Decimal  @default(0) @db.Decimal(12, 2)
+  goalAmount   Decimal? @db.Decimal(12, 2)
+  updatedAt    DateTime @updatedAt
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  linkedGoal   Goal?    @relation(fields: [linkedGoalId], references: [id], onDelete: SetNull)
+
+  @@index([linkedGoalId])
+}
+
+model FinanceMonth {
+  id       String   @id @default(uuid()) @db.Uuid
+  userId   String   @db.Uuid
+  month    DateTime @db.Date
+  income   Decimal  @default(0) @db.Decimal(12, 2)
+  expenses Decimal  @default(0) @db.Decimal(12, 2)
+  debtPaid Decimal  @default(0) @db.Decimal(12, 2)
+  deletedAt DateTime?
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, month])
+}
+
+model FinanceTransaction {
+  id              String       @id @default(uuid()) @db.Uuid
+  userId          String       @db.Uuid
+  transactionDate DateTime     @db.Date
+  type            String       @db.VarChar(30)
+  amount          Decimal      @db.Decimal(12, 2)
+  category        String       @db.VarChar(120)
+  note            String?
+  linkedDebtId    String?      @db.Uuid
+  debtPaymentId   String?      @unique @db.Uuid
+  createdAt       DateTime     @default(now())
+  deletedAt       DateTime?
+  user            User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  linkedDebt      Debt?        @relation(fields: [linkedDebtId], references: [id], onDelete: SetNull)
+  debtPayment     DebtPayment? @relation(fields: [debtPaymentId], references: [id], onDelete: SetNull)
+
+  @@index([userId, transactionDate])
+  @@index([userId, type])
+  @@index([linkedDebtId])
+  @@map("transactions")
+}
+
+model DebtPayment {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @db.Uuid
+  debtId    String   @db.Uuid
+  amount    Decimal  @db.Decimal(12, 2)
+  kind      String   @default("extra")
+  interestPortion  Decimal @default(0) @db.Decimal(12, 2)
+  principalPortion Decimal @default(0) @db.Decimal(12, 2)
+  resultingBalance Decimal? @db.Decimal(12, 2)
+  paidOn    DateTime @default(now()) @db.Date
+  createdAt DateTime @default(now())
+  deletedAt DateTime?
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  debt      Debt     @relation(fields: [debtId], references: [id], onDelete: Cascade)
+  transaction FinanceTransaction?
+
+  @@index([debtId, paidOn])
+}
+
+model WeightLog {
+  id      String   @id @default(uuid()) @db.Uuid
+  userId  String   @db.Uuid
+  logDate DateTime @default(now()) @db.Date
+  weight  Decimal  @db.Decimal(10, 2)
+  deletedAt DateTime?
+  user    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model DietLog {
+  id       String   @id @default(uuid()) @db.Uuid
+  userId   String   @db.Uuid
+  logDate  DateTime @default(now()) @db.Date
+  calories Int      @default(0)
+  protein  Int      @default(0)
+  deletedAt DateTime?
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, logDate])
+}
+
+model WorkoutLog {
+  id       String   @id @default(uuid()) @db.Uuid
+  userId   String   @db.Uuid
+  logDate  DateTime @default(now()) @db.Date
+  exercise String
+  sets     Int      @default(0)
+  reps     Int      @default(0)
+  weight   Decimal  @default(0) @db.Decimal(10, 2)
+  deletedAt DateTime?
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model SleepLog {
+  id      String   @id @default(uuid()) @db.Uuid
+  userId  String   @db.Uuid
+  logDate DateTime @default(now()) @db.Date
+  hours   Decimal  @db.Decimal(4, 2)
+  quality Int
+  deletedAt DateTime?
+  user    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model RelationshipCheckin {
+  id         String   @id @default(uuid()) @db.Uuid
+  userId     String   @db.Uuid
+  personName String
+  category   String
+  weekStart  DateTime @db.Date
+  rating     Int
+  note       String?
+  deletedAt  DateTime?
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model ImportantDate {
+  id         String   @id @default(uuid()) @db.Uuid
+  userId     String   @db.Uuid
+  personName String
+  kind       String
+  date       DateTime @db.Date
+  deletedAt  DateTime?
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+enum SkillStage {
+  DONT_KNOW_HOW
+  KNOW_HOW_NOT_DONE
+  CAN_DO_IT
+  DO_IT_WELL
+  COACH_IT
+}
+
+model Skill {
+  id       String            @id @default(uuid()) @db.Uuid
+  userId   String            @db.Uuid
+  linkedGoalId String?       @db.Uuid
+  name     String
+  targetDate DateTime?       @db.Date
+  status   SkillStage        @default(DONT_KNOW_HOW)
+  deletedAt DateTime?
+  user     User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  linkedGoal Goal?           @relation(fields: [linkedGoalId], references: [id], onDelete: SetNull)
+  sessions LearningSession[]
+  routineSteps RoutineStep[]
+
+  @@index([linkedGoalId])
+}
+
+model LearningSession {
+  id      String   @id @default(uuid()) @db.Uuid
+  userId  String   @db.Uuid
+  skillId String?  @db.Uuid
+  minutes Int
+  notes   String?
+  logDate DateTime @default(now()) @db.Date
+  deletedAt DateTime?
+  user    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  skill   Skill?   @relation(fields: [skillId], references: [id], onDelete: SetNull)
+}
+
+model Habit {
+  id             String    @id @default(uuid()) @db.Uuid
+  userId         String    @db.Uuid
+  linkedGoalId   String?   @db.Uuid
+  name           String
+  kind           String
+  whyThisMatters String?
+  currentStreak  Int       @default(0)
+  longestStreak  Int       @default(0)
+  lastCheckin    DateTime? @db.Date
+  lastSlip       DateTime? @db.Date
+  createdAt      DateTime  @default(now())
+  deletedAt      DateTime?
+  user           User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  linkedGoal     Goal?     @relation(fields: [linkedGoalId], references: [id], onDelete: SetNull)
+  routineSteps   RoutineStep[]
+  journalTags    JournalHabitTag[]
+
+  @@index([linkedGoalId])
+}
+
+enum RoutineStepType {
+  habit
+  daily_goal
+  weekly_goal
+  learning
+  finance
+  journal
+  standalone
+}
+
+model Routine {
+  id           String          @id @default(uuid()) @db.Uuid
+  userId       String          @db.Uuid
+  name         String
+  timeAnchor   String?         @db.VarChar(40)
+  linkedGoalId String?         @db.Uuid
+  protected    Boolean         @default(false)
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+  deletedAt    DateTime?
+  user         User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  linkedGoal   Goal?           @relation(fields: [linkedGoalId], references: [id], onDelete: SetNull)
+  steps        RoutineStep[]
+  dayLogs      RoutineDayLog[]
+
+  @@index([userId, createdAt])
+  @@index([linkedGoalId])
+}
+
+model RoutineStep {
+  id                 String                  @id @default(uuid()) @db.Uuid
+  userId             String                  @db.Uuid
+  routineId          String                  @db.Uuid
+  orderIndex         Int
+  stepName           String
+  stepType           RoutineStepType
+  linkedHabitId      String?                 @db.Uuid
+  linkedDailyGoalId  String?                 @db.Uuid
+  linkedWeeklyGoalId String?                 @db.Uuid
+  linkedSkillId      String?                 @db.Uuid
+  linkedFinanceAction String?                @db.VarChar(80)
+  linkedJournal      String?                 @db.VarChar(80)
+  createdAt          DateTime                @default(now())
+  deletedAt          DateTime?
+  user               User                    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  routine            Routine                 @relation(fields: [routineId], references: [id], onDelete: Cascade)
+  linkedHabit        Habit?                  @relation(fields: [linkedHabitId], references: [id], onDelete: SetNull)
+  linkedDailyGoal    Goal?                   @relation("RoutineDailyGoal", fields: [linkedDailyGoalId], references: [id], onDelete: SetNull)
+  linkedWeeklyGoal   Goal?                   @relation("RoutineWeeklyGoal", fields: [linkedWeeklyGoalId], references: [id], onDelete: SetNull)
+  linkedSkill        Skill?                  @relation(fields: [linkedSkillId], references: [id], onDelete: SetNull)
+  completions        RoutineStepCompletion[]
+
+  @@index([routineId, orderIndex])
+  @@index([userId, stepType])
+  @@index([linkedHabitId])
+  @@index([linkedDailyGoalId])
+  @@index([linkedWeeklyGoalId])
+  @@index([linkedSkillId])
+}
+
+model RoutineStepCompletion {
+  id            String      @id @default(uuid()) @db.Uuid
+  userId        String      @db.Uuid
+  routineStepId String      @db.Uuid
+  completedOn   DateTime    @db.Date
+  createdAt     DateTime    @default(now())
+  user          User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  routineStep   RoutineStep @relation(fields: [routineStepId], references: [id], onDelete: Cascade)
+
+  @@unique([routineStepId, completedOn])
+  @@index([userId, completedOn])
+}
+
+model RoutineDayLog {
+  id            String   @id @default(uuid()) @db.Uuid
+  userId        String   @db.Uuid
+  routineId     String   @db.Uuid
+  linkedGoalId  String?  @db.Uuid
+  logDate       DateTime @db.Date
+  completionPct Int      @default(0)
+  status        String   @default("not_done") @db.VarChar(30)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  routine       Routine  @relation(fields: [routineId], references: [id], onDelete: Cascade)
+  linkedGoal    Goal?    @relation(fields: [linkedGoalId], references: [id], onDelete: SetNull)
+
+  @@unique([routineId, logDate])
+  @@index([userId, logDate])
+  @@index([linkedGoalId, logDate])
+}
+
+model WeeklyReflection {
+  id                 String   @id @default(uuid()) @db.Uuid
+  userId             String   @db.Uuid
+  weekStart          DateTime @db.Date
+  oneThingThieves    String[] @default([])
+  oneThingReflection String?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+  user               User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, weekStart])
+  @@index([userId, weekStart])
+}
+
+model JournalGoalTag {
+  journalEntryId String       @db.Uuid
+  goalId         String       @db.Uuid
+  userId         String       @db.Uuid
+  createdAt      DateTime     @default(now())
+  journalEntry   JournalEntry @relation(fields: [journalEntryId], references: [id], onDelete: Cascade)
+  goal           Goal         @relation(fields: [goalId], references: [id], onDelete: Cascade)
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([journalEntryId, goalId])
+  @@index([userId])
+  @@index([goalId])
+}
+
+model JournalHabitTag {
+  journalEntryId String       @db.Uuid
+  habitId        String       @db.Uuid
+  userId         String       @db.Uuid
+  createdAt      DateTime     @default(now())
+  journalEntry   JournalEntry @relation(fields: [journalEntryId], references: [id], onDelete: Cascade)
+  habit          Habit        @relation(fields: [habitId], references: [id], onDelete: Cascade)
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([journalEntryId, habitId])
+  @@index([userId])
+  @@index([habitId])
+}

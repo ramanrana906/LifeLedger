@@ -1,36 +1,61 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Journal
 
-## Getting Started
+Journal is an npm-workspaces monorepo containing the web application and API.
 
-First, run the development server:
+## Structure
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+```text
+apps/
+  web/    Next.js application
+  api/    NestJS API and Prisma schema
+packages/ # shared libraries (add when needed)
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## Requirements
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+- Node.js 20.19 or newer
+- npm 10 or newer
+- Docker (for the local PostgreSQL database)
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Setup
 
-## Learn More
+Install all workspace dependencies from the repository root:
 
-To learn more about Next.js, take a look at the following resources:
+```bash
+npm install
+cp apps/web/.env.example apps/web/.env
+cp apps/api/.env.example apps/api/.env
+npm run db:up
+npm run prisma:migrate
+npm run prisma:seed
+```
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+Keep existing `.env` files when they are already configured.
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## Development
 
-## Deploy on Vercel
+Run the applications in separate terminals:
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+```bash
+npm run dev:web
+npm run dev:api
+```
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+The web app runs on `http://localhost:3000`. The API uses the port configured in `apps/api/.env` (default `3001`).
+
+## Quality checks
+
+```bash
+npm run lint
+npm test
+npm run build
+```
+
+Commands can also target one workspace directly:
+
+```bash
+npm run test --workspace @journal/api
+npm run build --workspace @journal/web
+```
+
+Add reusable code under `packages/` only when both applications need it; keeping app-specific code inside its owning workspace avoids premature coupling.

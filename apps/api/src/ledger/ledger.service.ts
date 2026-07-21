@@ -32,12 +32,20 @@ const MODULES = [
 const DEFAULT_FOCUS_AREAS = ['journal', 'goals', 'habits'];
 const DEFAULT_CYCLE_LENGTH_DAYS = 90;
 const TRANSACTION_TYPES = ['income', 'expense', 'debt_payment'] as const;
-const SKILL_STAGES = ['DONT_KNOW_HOW', 'KNOW_HOW_NOT_DONE', 'CAN_DO_IT', 'DO_IT_WELL', 'COACH_IT'] as const;
+const SKILL_STAGES = [
+  'DONT_KNOW_HOW',
+  'KNOW_HOW_NOT_DONE',
+  'CAN_DO_IT',
+  'DO_IT_WELL',
+  'COACH_IT',
+] as const;
 type SkillStageValue = (typeof SKILL_STAGES)[number];
 
 function dateOnly(value: string | Date = new Date()) {
   const date = typeof value === 'string' ? new Date(value) : value;
-  return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
+  return new Date(
+    Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()),
+  );
 }
 
 function today() {
@@ -70,7 +78,9 @@ function cycleEnd(startDate: Date, cycleLengthDays: number) {
 
 function nextDueDate(after: Date, dueDay: number) {
   const clampedDay = Math.min(Math.max(dueDay, 1), 28);
-  const candidate = new Date(Date.UTC(after.getUTCFullYear(), after.getUTCMonth(), clampedDay));
+  const candidate = new Date(
+    Date.UTC(after.getUTCFullYear(), after.getUTCMonth(), clampedDay),
+  );
   if (candidate <= after) return addMonths(candidate, 1);
   return candidate;
 }
@@ -78,6 +88,13 @@ function nextDueDate(after: Date, dueDay: number) {
 function asNumber(value: unknown, fallback = 0) {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function asString(value: unknown, fallback = ''): string {
+  if (typeof value === 'string') return value;
+  if (typeof value === 'number' || typeof value === 'boolean')
+    return String(value);
+  return fallback;
 }
 
 function active<T extends Record<string, unknown>>(where: T) {
@@ -93,7 +110,7 @@ function checkedRoutineStepType(value: unknown) {
 }
 
 function checkedTransactionType(value: unknown) {
-  const type = String(value ?? 'expense');
+  const type = asString(value, 'expense');
   if (!TRANSACTION_TYPES.includes(type as (typeof TRANSACTION_TYPES)[number])) {
     throw new BadRequestException('Unknown transaction type.');
   }
@@ -101,8 +118,9 @@ function checkedTransactionType(value: unknown) {
 }
 
 function checkedSkillStage(value: unknown): SkillStageValue {
-  const raw = String(value ?? 'DONT_KNOW_HOW');
-  if (SKILL_STAGES.includes(raw as SkillStageValue)) return raw as SkillStageValue;
+  const raw = asString(value, 'DONT_KNOW_HOW');
+  if (SKILL_STAGES.includes(raw as SkillStageValue))
+    return raw as SkillStageValue;
 
   const normalized = raw.toLowerCase().replace(/[\s-]+/g, '_');
   const fallbackMap: Record<string, SkillStageValue> = {
@@ -132,18 +150,26 @@ function checkedSkillStage(value: unknown): SkillStageValue {
 function toJson(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(toJson);
   if (value && typeof value === 'object') {
-    if ('toNumber' in value && typeof value.toNumber === 'function') {
-      return value.toNumber();
+    if (
+      'toNumber' in value &&
+      typeof (value as { toNumber?: unknown }).toNumber === 'function'
+    ) {
+      return (value as { toNumber: () => number }).toNumber();
     }
     if (value instanceof Date) return value.toISOString().slice(0, 10);
-    return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, toJson(item)]));
+    return Object.fromEntries(
+      Object.entries(value).map(([key, item]) => [key, toJson(item)]),
+    );
   }
   return value;
 }
 
 @Injectable()
 export class LedgerService {
-  private readonly patternCache = new Map<string, { computedAt: Date; patterns: CorrelationPattern[] }>();
+  private readonly patternCache = new Map<
+    string,
+    { computedAt: Date; patterns: CorrelationPattern[] }
+  >();
 
   constructor(private readonly prisma: PrismaService) {}
 
@@ -164,7 +190,10 @@ export class LedgerService {
       let balance = Number(loan.balance);
       const emiAmount = Number(loan.emiAmount);
       const dueDay = loan.dueDay ?? 1;
-      let dueDate = nextDueDate(loan.lastEmiAppliedOn ?? loan.createdAt, dueDay);
+      let dueDate = nextDueDate(
+        loan.lastEmiAppliedOn ?? loan.createdAt,
+        dueDay,
+      );
 
       while (dueDate <= currentDate && balance > 0) {
         const alreadyApplied = await this.prisma.debtPayment.findFirst({
@@ -177,7 +206,11 @@ export class LedgerService {
         });
 
         if (!alreadyApplied) {
-          const payment = amortizePayment(balance, Number(loan.interestRate), emiAmount);
+          const payment = amortizePayment(
+            balance,
+            Number(loan.interestRate),
+            emiAmount,
+          );
           await this.prisma.$transaction([
             this.prisma.debtPayment.create({
               data: {
@@ -288,7 +321,11 @@ export class LedgerService {
     });
   }
 
-  private async routineStepLinkData(userId: string, stepType: RoutineStepTypeValue, body: Record<string, unknown>) {
+  private async routineStepLinkData(
+    userId: string,
+    stepType: RoutineStepTypeValue,
+    body: Record<string, unknown>,
+  ) {
     const data = {
       linkedHabitId: null as string | null,
       linkedDailyGoalId: null as string | null,
@@ -299,45 +336,62 @@ export class LedgerService {
     };
 
     if (stepType === 'habit' && body.linkedHabitId) {
-      const linkedHabitId = String(body.linkedHabitId);
-      await this.prisma.habit.findFirstOrThrow({ where: active({ id: linkedHabitId, userId }) });
+      const linkedHabitId = asString(body.linkedHabitId);
+      await this.prisma.habit.findFirstOrThrow({
+        where: active({ id: linkedHabitId, userId }),
+      });
       data.linkedHabitId = linkedHabitId;
     }
 
     if (stepType === 'daily_goal' && body.linkedDailyGoalId) {
-      const linkedDailyGoalId = String(body.linkedDailyGoalId);
-      await this.prisma.goal.findFirstOrThrow({ where: active({ id: linkedDailyGoalId, userId, level: 'daily' }) });
+      const linkedDailyGoalId = asString(body.linkedDailyGoalId);
+      await this.prisma.goal.findFirstOrThrow({
+        where: active({ id: linkedDailyGoalId, userId, level: 'daily' }),
+      });
       data.linkedDailyGoalId = linkedDailyGoalId;
     }
 
     if (stepType === 'weekly_goal' && body.linkedWeeklyGoalId) {
-      const linkedWeeklyGoalId = String(body.linkedWeeklyGoalId);
-      await this.prisma.goal.findFirstOrThrow({ where: active({ id: linkedWeeklyGoalId, userId, level: 'weekly' }) });
+      const linkedWeeklyGoalId = asString(body.linkedWeeklyGoalId);
+      await this.prisma.goal.findFirstOrThrow({
+        where: active({ id: linkedWeeklyGoalId, userId, level: 'weekly' }),
+      });
       data.linkedWeeklyGoalId = linkedWeeklyGoalId;
     }
 
     if (stepType === 'learning' && body.linkedSkillId) {
-      const linkedSkillId = String(body.linkedSkillId);
-      await this.prisma.skill.findFirstOrThrow({ where: active({ id: linkedSkillId, userId }) });
+      const linkedSkillId = asString(body.linkedSkillId);
+      await this.prisma.skill.findFirstOrThrow({
+        where: active({ id: linkedSkillId, userId }),
+      });
       data.linkedSkillId = linkedSkillId;
     }
 
     if (stepType === 'finance') {
-      data.linkedFinanceAction = String(body.linkedFinanceAction ?? 'expense');
+      data.linkedFinanceAction = asString(body.linkedFinanceAction, 'expense');
     }
 
     if (stepType === 'journal') {
-      data.linkedJournal = String(body.linkedJournal ?? 'today');
+      data.linkedJournal = asString(body.linkedJournal, 'today');
     }
 
     return data;
   }
 
-  private async persistRoutineDayLogs(userId: string, currentDate: Date, statuses: RoutineStatus[]) {
+  private async persistRoutineDayLogs(
+    userId: string,
+    currentDate: Date,
+    statuses: RoutineStatus[],
+  ) {
     await Promise.all(
       statuses.map((routine) =>
         this.prisma.routineDayLog.upsert({
-          where: { routineId_logDate: { routineId: routine.routineId, logDate: currentDate } },
+          where: {
+            routineId_logDate: {
+              routineId: routine.routineId,
+              logDate: currentDate,
+            },
+          },
           update: {
             linkedGoalId: routine.linkedGoalId,
             completionPct: routine.completionPct,
@@ -407,70 +461,172 @@ export class LedgerService {
         where: active({ userId, entryDate: t }),
         include: { goalTags: true, habitTags: true },
       }),
-      this.prisma.goal.findMany({ where: active({ userId }), orderBy: [{ level: 'asc' }, { createdAt: 'asc' }] }),
-      this.prisma.dailyGoal.findMany({ where: active({ userId, entryDate: t }), orderBy: { createdAt: 'asc' } }),
-      this.prisma.lifeGoal.findMany({ where: active({ userId }), orderBy: { createdAt: 'asc' } }),
+      this.prisma.goal.findMany({
+        where: active({ userId }),
+        orderBy: [{ level: 'asc' }, { createdAt: 'asc' }],
+      }),
+      this.prisma.dailyGoal.findMany({
+        where: active({ userId, entryDate: t }),
+        orderBy: { createdAt: 'asc' },
+      }),
+      this.prisma.lifeGoal.findMany({
+        where: active({ userId }),
+        orderBy: { createdAt: 'asc' },
+      }),
       this.prisma.weeklyGoal.findMany({
         where: active({ userId, weekStart: ws }),
         include: { lifeGoal: true },
         orderBy: { createdAt: 'asc' },
       }),
-      this.prisma.debt.findMany({ where: active({ userId }), orderBy: { createdAt: 'asc' } }),
-      this.prisma.incomeSource.findMany({ where: active({ userId }), orderBy: { createdAt: 'asc' } }),
+      this.prisma.debt.findMany({
+        where: active({ userId }),
+        orderBy: { createdAt: 'asc' },
+      }),
+      this.prisma.incomeSource.findMany({
+        where: active({ userId }),
+        orderBy: { createdAt: 'asc' },
+      }),
       this.prisma.savings.findUnique({ where: { userId } }),
-      this.prisma.financeMonth.findMany({ where: active({ userId }), orderBy: { month: 'desc' } }),
+      this.prisma.financeMonth.findMany({
+        where: active({ userId }),
+        orderBy: { month: 'desc' },
+      }),
       this.prisma.financeTransaction.findMany({
         where: active({ userId }),
         include: { linkedDebt: true },
         orderBy: [{ transactionDate: 'desc' }, { createdAt: 'desc' }],
         take: 500,
       }),
-      this.prisma.weightLog.findMany({ where: active({ userId }), orderBy: { logDate: 'asc' } }),
+      this.prisma.weightLog.findMany({
+        where: active({ userId }),
+        orderBy: { logDate: 'asc' },
+      }),
       this.prisma.dietLog.findFirst({ where: active({ userId, logDate: t }) }),
-      this.prisma.workoutLog.findMany({ where: active({ userId }), orderBy: { logDate: 'desc' }, take: 30 }),
-      this.prisma.sleepLog.findMany({ where: active({ userId }), orderBy: { logDate: 'desc' }, take: 30 }),
-      this.prisma.habit.findMany({ where: active({ userId }), orderBy: { createdAt: 'asc' } }),
-      this.prisma.relationshipCheckin.findMany({ where: active({ userId, weekStart: ws }), orderBy: { personName: 'asc' } }),
-      this.prisma.importantDate.findMany({ where: active({ userId }), orderBy: { date: 'asc' } }),
-      this.prisma.skill.findMany({ where: active({ userId }), orderBy: { name: 'asc' } }),
+      this.prisma.workoutLog.findMany({
+        where: active({ userId }),
+        orderBy: { logDate: 'desc' },
+        take: 30,
+      }),
+      this.prisma.sleepLog.findMany({
+        where: active({ userId }),
+        orderBy: { logDate: 'desc' },
+        take: 30,
+      }),
+      this.prisma.habit.findMany({
+        where: active({ userId }),
+        orderBy: { createdAt: 'asc' },
+      }),
+      this.prisma.relationshipCheckin.findMany({
+        where: active({ userId, weekStart: ws }),
+        orderBy: { personName: 'asc' },
+      }),
+      this.prisma.importantDate.findMany({
+        where: active({ userId }),
+        orderBy: { date: 'asc' },
+      }),
+      this.prisma.skill.findMany({
+        where: active({ userId }),
+        orderBy: { name: 'asc' },
+      }),
       this.prisma.learningSession.findMany({
         where: active({ userId }),
         include: { skill: true },
         orderBy: { logDate: 'desc' },
         take: 120,
       }),
-      this.prisma.debtPayment.findMany({ where: active({ userId }), orderBy: { paidOn: 'asc' } }),
-      this.prisma.asset.findMany({ where: active({ userId }), orderBy: { updatedAt: 'desc' } }),
-      this.prisma.assetSnapshot.findMany({ where: { userId }, orderBy: { snapshotDate: 'asc' }, take: 180 }),
-      this.prisma.netWorthSnapshot.findMany({ where: { userId }, orderBy: { snapshotDate: 'asc' }, take: 180 }),
-      this.prisma.dietLog.findMany({ where: active({ userId }), orderBy: { logDate: 'asc' }, take: 90 }),
-      this.prisma.journalEntry.findMany({ where: active({ userId }), orderBy: { entryDate: 'asc' }, take: 120 }),
-      this.prisma.xpEvent.findMany({ where: { userId }, orderBy: { createdAt: 'asc' }, take: 240 }),
+      this.prisma.debtPayment.findMany({
+        where: active({ userId }),
+        orderBy: { paidOn: 'asc' },
+      }),
+      this.prisma.asset.findMany({
+        where: active({ userId }),
+        orderBy: { updatedAt: 'desc' },
+      }),
+      this.prisma.assetSnapshot.findMany({
+        where: { userId },
+        orderBy: { snapshotDate: 'asc' },
+        take: 180,
+      }),
+      this.prisma.netWorthSnapshot.findMany({
+        where: { userId },
+        orderBy: { snapshotDate: 'asc' },
+        take: 180,
+      }),
+      this.prisma.dietLog.findMany({
+        where: active({ userId }),
+        orderBy: { logDate: 'asc' },
+        take: 90,
+      }),
+      this.prisma.journalEntry.findMany({
+        where: active({ userId }),
+        orderBy: { entryDate: 'asc' },
+        take: 120,
+      }),
+      this.prisma.xpEvent.findMany({
+        where: { userId },
+        orderBy: { createdAt: 'asc' },
+        take: 240,
+      }),
       this.correlationPatterns(userId, t, ws),
-      this.prisma.weeklyReflection.findUnique({ where: { userId_weekStart: { userId, weekStart: ws } } }),
-      this.prisma.journalGoalTag.findMany({ where: { userId }, orderBy: { createdAt: 'asc' }, take: 240 }),
-      this.prisma.journalHabitTag.findMany({ where: { userId }, orderBy: { createdAt: 'asc' }, take: 240 }),
+      this.prisma.weeklyReflection.findUnique({
+        where: { userId_weekStart: { userId, weekStart: ws } },
+      }),
+      this.prisma.journalGoalTag.findMany({
+        where: { userId },
+        orderBy: { createdAt: 'asc' },
+        take: 240,
+      }),
+      this.prisma.journalHabitTag.findMany({
+        where: { userId },
+        orderBy: { createdAt: 'asc' },
+        take: 240,
+      }),
       this.prisma.routine.findMany({
         where: active({ userId }),
-        include: { steps: { where: { deletedAt: null }, orderBy: { orderIndex: 'asc' } } },
+        include: {
+          steps: { where: { deletedAt: null }, orderBy: { orderIndex: 'asc' } },
+        },
         orderBy: { createdAt: 'asc' },
       }),
-      this.prisma.routineStepCompletion.findMany({ where: { userId, completedOn: t } }),
-      this.prisma.routineDayLog.findMany({ where: { userId }, orderBy: { logDate: 'asc' }, take: 365 }),
+      this.prisma.routineStepCompletion.findMany({
+        where: { userId, completedOn: t },
+      }),
+      this.prisma.routineDayLog.findMany({
+        where: { userId },
+        orderBy: { logDate: 'asc' },
+        take: 365,
+      }),
     ]);
 
     const loanSummaries = debts.map((debt) => {
       const balance = Number(debt.balance);
       const emiAmount = debt.emiAmount == null ? null : Number(debt.emiAmount);
-      const payoffMonths = emiAmount ? projectedPayoffMonths(balance, Number(debt.interestRate), emiAmount) : null;
-      const payoffDate = payoffMonths == null ? null : addMonths(t, payoffMonths);
-      const paymentsForLoan = debtPayments.filter((payment) => payment.debtId === debt.id);
+      const payoffMonths = emiAmount
+        ? projectedPayoffMonths(balance, Number(debt.interestRate), emiAmount)
+        : null;
+      const payoffDate =
+        payoffMonths == null ? null : addMonths(t, payoffMonths);
+      const paymentsForLoan = debtPayments.filter(
+        (payment) => payment.debtId === debt.id,
+      );
       return {
         debtId: debt.id,
-        totalInterestPaid: paymentsForLoan.reduce((sum, payment) => sum + Number(payment.interestPortion ?? 0), 0),
-        totalPrincipalPaid: paymentsForLoan.reduce((sum, payment) => sum + Number(payment.principalPortion ?? payment.amount ?? 0), 0),
+        totalInterestPaid: paymentsForLoan.reduce(
+          (sum, payment) => sum + Number(payment.interestPortion ?? 0),
+          0,
+        ),
+        totalPrincipalPaid: paymentsForLoan.reduce(
+          (sum, payment) =>
+            sum + Number(payment.principalPortion ?? payment.amount ?? 0),
+          0,
+        ),
         projectedPayoffDate: payoffDate,
-        emiWarning: emiWarning(Number(debt.principal), Number(debt.interestRate), debt.tenureMonths, emiAmount),
+        emiWarning: emiWarning(
+          Number(debt.principal),
+          Number(debt.interestRate),
+          debt.tenureMonths,
+          emiAmount,
+        ),
       };
     });
 
@@ -537,13 +693,26 @@ export class LedgerService {
     });
   }
 
-  private async correlationPatterns(userId: string, currentDate: Date, currentWeekStart: Date) {
+  private async correlationPatterns(
+    userId: string,
+    currentDate: Date,
+    currentWeekStart: Date,
+  ) {
     const cacheKey = `${userId}:${currentWeekStart.toISOString().slice(0, 10)}`;
     const cached = this.patternCache.get(cacheKey);
     if (cached) return cached.patterns;
 
     const start = addDays(currentDate, -100);
-    const [journals, sleep, diet, weights, sessions, dailyGoals, habits, routineDayLogs] = await Promise.all([
+    const [
+      journals,
+      sleep,
+      diet,
+      weights,
+      sessions,
+      dailyGoals,
+      habits,
+      routineDayLogs,
+    ] = await Promise.all([
       this.prisma.journalEntry.findMany({
         where: active({ userId, entryDate: { gte: start } }),
         orderBy: { entryDate: 'asc' },
@@ -594,7 +763,12 @@ export class LedgerService {
     return patterns;
   }
 
-  private async recordAssetSnapshot(userId: string, assetId: string, value: number, snapshotDate = today()) {
+  private async recordAssetSnapshot(
+    userId: string,
+    assetId: string,
+    value: number,
+    snapshotDate = today(),
+  ) {
     return this.prisma.assetSnapshot.create({
       data: {
         userId,
@@ -610,8 +784,14 @@ export class LedgerService {
       this.prisma.asset.findMany({ where: active({ userId }) }),
       this.prisma.debt.findMany({ where: active({ userId }) }),
     ]);
-    const totalAssets = assets.reduce((sum, asset) => sum + Number(asset.currentValue), 0);
-    const liabilities = debts.reduce((sum, debt) => sum + Number(debt.balance), 0);
+    const totalAssets = assets.reduce(
+      (sum, asset) => sum + Number(asset.currentValue),
+      0,
+    );
+    const liabilities = debts.reduce(
+      (sum, debt) => sum + Number(debt.balance),
+      0,
+    );
     return this.prisma.netWorthSnapshot.create({
       data: {
         userId,
@@ -630,11 +810,20 @@ export class LedgerService {
       update: { xp: { increment: amount }, lastActiveDate: today() },
       create: { userId, xp: amount, lastActiveDate: today() },
     });
-    const threshold = current.level * 100;
-    if (current.xp >= threshold) {
+    let level = current.level;
+    let xp = current.xp;
+    let leveledUp = false;
+
+    while (xp >= level * 100) {
+      xp -= level * 100;
+      level += 1;
+      leveledUp = true;
+    }
+
+    if (leveledUp) {
       await this.prisma.userStats.update({
         where: { userId },
-        data: { level: { increment: 1 }, xp: current.xp - threshold },
+        data: { level, xp },
       });
     }
   }
@@ -651,14 +840,27 @@ export class LedgerService {
         });
         const entry = await this.prisma.journalEntry.upsert({
           where: { userId_entryDate: { userId, entryDate: t } },
-          update: { mood: String(body.mood ?? 'Steady'), body: String(body.body ?? ''), deletedAt: null },
-          create: { userId, entryDate: t, mood: String(body.mood ?? 'Steady'), body: String(body.body ?? '') },
+          update: {
+            mood: String(body.mood ?? 'Steady'),
+            body: String(body.body ?? ''),
+            deletedAt: null,
+          },
+          create: {
+            userId,
+            entryDate: t,
+            mood: String(body.mood ?? 'Steady'),
+            body: String(body.body ?? ''),
+          },
         });
         const goalIds = this.normalizeIdList(body.goalIds);
         const habitIds = this.normalizeIdList(body.habitIds);
         await this.prisma.$transaction([
-          this.prisma.journalGoalTag.deleteMany({ where: { journalEntryId: entry.id } }),
-          this.prisma.journalHabitTag.deleteMany({ where: { journalEntryId: entry.id } }),
+          this.prisma.journalGoalTag.deleteMany({
+            where: { journalEntryId: entry.id },
+          }),
+          this.prisma.journalHabitTag.deleteMany({
+            where: { journalEntryId: entry.id },
+          }),
           ...goalIds.map((goalId) =>
             this.prisma.journalGoalTag.create({
               data: { userId, journalEntryId: entry.id, goalId },
@@ -677,39 +879,104 @@ export class LedgerService {
         return toJson(
           await this.prisma.journalEntry.update({
             where: { id: String(body.id) },
-            data: { mood: String(body.mood ?? 'Steady'), body: String(body.body ?? '') },
+            data: {
+              mood: String(body.mood ?? 'Steady'),
+              body: String(body.body ?? ''),
+            },
           }),
         );
       case 'journal.delete':
-        return toJson(await this.prisma.journalEntry.update({ where: { id: String(body.id) }, data: { deletedAt: new Date() } }));
+        return toJson(
+          await this.prisma.journalEntry.update({
+            where: { id: String(body.id) },
+            data: { deletedAt: new Date() },
+          }),
+        );
       case 'journal.restore':
-        return toJson(await this.prisma.journalEntry.update({ where: { id: String(body.id) }, data: { deletedAt: null } }));
+        return toJson(
+          await this.prisma.journalEntry.update({
+            where: { id: String(body.id) },
+            data: { deletedAt: null },
+          }),
+        );
       case 'dailyGoal.add':
-        return toJson(await this.prisma.dailyGoal.create({ data: { userId, entryDate: t, title: String(body.title ?? '') } }));
+        return toJson(
+          await this.prisma.dailyGoal.create({
+            data: { userId, entryDate: t, title: String(body.title ?? '') },
+          }),
+        );
       case 'dailyGoal.update':
-        return toJson(await this.prisma.dailyGoal.update({ where: { id: String(body.id) }, data: { title: String(body.title ?? '') } }));
+        return toJson(
+          await this.prisma.dailyGoal.update({
+            where: { id: String(body.id) },
+            data: { title: String(body.title ?? '') },
+          }),
+        );
       case 'dailyGoal.toggle': {
-        const goal = await this.prisma.dailyGoal.findFirstOrThrow({ where: { id: String(body.id), userId } });
+        const goal = await this.prisma.dailyGoal.findFirstOrThrow({
+          where: { id: String(body.id), userId },
+        });
         if (!goal.completed) await this.awardXp(userId, 'goal', 5);
-        return toJson(await this.prisma.dailyGoal.update({ where: { id: goal.id }, data: { completed: !goal.completed } }));
+        return toJson(
+          await this.prisma.dailyGoal.update({
+            where: { id: goal.id },
+            data: { completed: !goal.completed },
+          }),
+        );
       }
       case 'dailyGoal.delete':
-        return toJson(await this.prisma.dailyGoal.update({ where: { id: String(body.id) }, data: { deletedAt: new Date() } }));
+        return toJson(
+          await this.prisma.dailyGoal.update({
+            where: { id: String(body.id) },
+            data: { deletedAt: new Date() },
+          }),
+        );
       case 'dailyGoal.restore':
-        return toJson(await this.prisma.dailyGoal.update({ where: { id: String(body.id) }, data: { deletedAt: null } }));
+        return toJson(
+          await this.prisma.dailyGoal.update({
+            where: { id: String(body.id) },
+            data: { deletedAt: null },
+          }),
+        );
       case 'lifeGoal.add':
-        return toJson(await this.prisma.lifeGoal.create({ data: { userId, title: String(body.title ?? '') } }));
+        return toJson(
+          await this.prisma.lifeGoal.create({
+            data: { userId, title: String(body.title ?? '') },
+          }),
+        );
       case 'lifeGoal.update':
-        return toJson(await this.prisma.lifeGoal.update({ where: { id: String(body.id) }, data: { title: String(body.title ?? '') } }));
+        return toJson(
+          await this.prisma.lifeGoal.update({
+            where: { id: String(body.id) },
+            data: { title: String(body.title ?? '') },
+          }),
+        );
       case 'lifeGoal.toggle': {
-        const goal = await this.prisma.lifeGoal.findFirstOrThrow({ where: { id: String(body.id), userId } });
+        const goal = await this.prisma.lifeGoal.findFirstOrThrow({
+          where: { id: String(body.id), userId },
+        });
         if (!goal.completed) await this.awardXp(userId, 'life_goal', 20);
-        return toJson(await this.prisma.lifeGoal.update({ where: { id: goal.id }, data: { completed: !goal.completed } }));
+        return toJson(
+          await this.prisma.lifeGoal.update({
+            where: { id: goal.id },
+            data: { completed: !goal.completed },
+          }),
+        );
       }
       case 'lifeGoal.delete':
-        return toJson(await this.prisma.lifeGoal.update({ where: { id: String(body.id) }, data: { deletedAt: new Date() } }));
+        return toJson(
+          await this.prisma.lifeGoal.update({
+            where: { id: String(body.id) },
+            data: { deletedAt: new Date() },
+          }),
+        );
       case 'lifeGoal.restore':
-        return toJson(await this.prisma.lifeGoal.update({ where: { id: String(body.id) }, data: { deletedAt: null } }));
+        return toJson(
+          await this.prisma.lifeGoal.update({
+            where: { id: String(body.id) },
+            data: { deletedAt: null },
+          }),
+        );
       case 'weeklyGoal.add':
         return toJson(
           await this.prisma.weeklyGoal.create({
@@ -722,9 +989,16 @@ export class LedgerService {
           }),
         );
       case 'weeklyGoal.toggle': {
-        const goal = await this.prisma.weeklyGoal.findFirstOrThrow({ where: { id: String(body.id), userId } });
+        const goal = await this.prisma.weeklyGoal.findFirstOrThrow({
+          where: { id: String(body.id), userId },
+        });
         if (!goal.completed) await this.awardXp(userId, 'weekly_goal', 10);
-        return toJson(await this.prisma.weeklyGoal.update({ where: { id: goal.id }, data: { completed: !goal.completed } }));
+        return toJson(
+          await this.prisma.weeklyGoal.update({
+            where: { id: goal.id },
+            data: { completed: !goal.completed },
+          }),
+        );
       }
       case 'weeklyGoal.update':
         return toJson(
@@ -737,15 +1011,31 @@ export class LedgerService {
           }),
         );
       case 'weeklyGoal.delete':
-        return toJson(await this.prisma.weeklyGoal.update({ where: { id: String(body.id) }, data: { deletedAt: new Date() } }));
+        return toJson(
+          await this.prisma.weeklyGoal.update({
+            where: { id: String(body.id) },
+            data: { deletedAt: new Date() },
+          }),
+        );
       case 'weeklyGoal.restore':
-        return toJson(await this.prisma.weeklyGoal.update({ where: { id: String(body.id) }, data: { deletedAt: null } }));
+        return toJson(
+          await this.prisma.weeklyGoal.update({
+            where: { id: String(body.id) },
+            data: { deletedAt: null },
+          }),
+        );
       case 'goal.add': {
-        const parentGoalId = body.parentGoalId ? String(body.parentGoalId) : null;
-        const parent = parentGoalId
-          ? await this.prisma.goal.findFirstOrThrow({ where: active({ id: parentGoalId, userId }) })
+        const parentGoalId = body.parentGoalId
+          ? String(body.parentGoalId)
           : null;
-        const level = parent ? this.nextGoalLevel(parent.level) : String(body.level ?? 'life');
+        const parent = parentGoalId
+          ? await this.prisma.goal.findFirstOrThrow({
+              where: active({ id: parentGoalId, userId }),
+            })
+          : null;
+        const level = parent
+          ? this.nextGoalLevel(parent.level)
+          : String(body.level ?? 'life');
         if (!['life', 'monthly', 'weekly', 'daily'].includes(level)) {
           throw new BadRequestException('Unknown goal level.');
         }
@@ -756,47 +1046,120 @@ export class LedgerService {
               parentGoalId,
               level,
               title: String(body.title ?? ''),
-              targetMetric: ['life', 'monthly', 'weekly'].includes(level) && body.targetMetric ? String(body.targetMetric) : null,
-              targetDescription: ['life', 'monthly'].includes(level) && (body.definitionOfDone ?? body.targetDescription) ? String(body.definitionOfDone ?? body.targetDescription) : null,
-              definitionOfDone: ['life', 'monthly'].includes(level) && (body.definitionOfDone ?? body.targetDescription) ? String(body.definitionOfDone ?? body.targetDescription) : null,
-              whyThisMatters: level === 'life' && body.whyThisMatters ? String(body.whyThisMatters) : null,
-              targetDate: body.targetDate ? dateOnly(String(body.targetDate)) : level === 'daily' ? t : level === 'weekly' ? ws : null,
+              targetMetric:
+                ['life', 'monthly', 'weekly'].includes(level) &&
+                body.targetMetric
+                  ? String(body.targetMetric)
+                  : null,
+              targetDescription:
+                ['life', 'monthly'].includes(level) &&
+                (body.definitionOfDone ?? body.targetDescription)
+                  ? String(body.definitionOfDone ?? body.targetDescription)
+                  : null,
+              definitionOfDone:
+                ['life', 'monthly'].includes(level) &&
+                (body.definitionOfDone ?? body.targetDescription)
+                  ? String(body.definitionOfDone ?? body.targetDescription)
+                  : null,
+              whyThisMatters:
+                level === 'life' && body.whyThisMatters
+                  ? String(body.whyThisMatters)
+                  : null,
+              targetDate: body.targetDate
+                ? dateOnly(String(body.targetDate))
+                : level === 'daily'
+                  ? t
+                  : level === 'weekly'
+                    ? ws
+                    : null,
             },
           }),
         );
       }
       case 'goal.update': {
-        const existing = await this.prisma.goal.findFirstOrThrow({ where: { id: String(body.id), userId } });
+        const existing = await this.prisma.goal.findFirstOrThrow({
+          where: { id: String(body.id), userId },
+        });
         return toJson(
           await this.prisma.goal.update({
             where: { id: existing.id },
             data: {
               title: String(body.title ?? ''),
-              targetMetric: ['life', 'monthly', 'weekly'].includes(existing.level) && body.targetMetric ? String(body.targetMetric) : null,
-              targetDescription: ['life', 'monthly'].includes(existing.level) && (body.definitionOfDone ?? body.targetDescription) ? String(body.definitionOfDone ?? body.targetDescription) : null,
-              definitionOfDone: ['life', 'monthly'].includes(existing.level) && (body.definitionOfDone ?? body.targetDescription) ? String(body.definitionOfDone ?? body.targetDescription) : null,
-              whyThisMatters: existing.level === 'life' && body.whyThisMatters ? String(body.whyThisMatters) : null,
-              targetDate: ['life', 'monthly', 'daily'].includes(existing.level) && body.targetDate ? dateOnly(String(body.targetDate)) : existing.level === 'daily' ? existing.targetDate : existing.level === 'weekly' ? existing.targetDate : null,
+              targetMetric:
+                ['life', 'monthly', 'weekly'].includes(existing.level) &&
+                body.targetMetric
+                  ? String(body.targetMetric)
+                  : null,
+              targetDescription:
+                ['life', 'monthly'].includes(existing.level) &&
+                (body.definitionOfDone ?? body.targetDescription)
+                  ? String(body.definitionOfDone ?? body.targetDescription)
+                  : null,
+              definitionOfDone:
+                ['life', 'monthly'].includes(existing.level) &&
+                (body.definitionOfDone ?? body.targetDescription)
+                  ? String(body.definitionOfDone ?? body.targetDescription)
+                  : null,
+              whyThisMatters:
+                existing.level === 'life' && body.whyThisMatters
+                  ? String(body.whyThisMatters)
+                  : null,
+              targetDate:
+                ['life', 'monthly', 'daily'].includes(existing.level) &&
+                body.targetDate
+                  ? dateOnly(String(body.targetDate))
+                  : existing.level === 'daily'
+                    ? existing.targetDate
+                    : existing.level === 'weekly'
+                      ? existing.targetDate
+                      : null,
             },
           }),
         );
       }
       case 'goal.toggle': {
-        const goal = await this.prisma.goal.findFirstOrThrow({ where: { id: String(body.id), userId } });
+        const goal = await this.prisma.goal.findFirstOrThrow({
+          where: { id: String(body.id), userId },
+        });
         if (!['daily', 'weekly'].includes(goal.level)) return toJson(goal);
-        if (!goal.completed) await this.awardXp(userId, goal.level === 'daily' ? 'goal' : 'weekly_goal', goal.level === 'daily' ? 5 : 10);
-        return toJson(await this.prisma.goal.update({ where: { id: goal.id }, data: { completed: !goal.completed } }));
+        if (!goal.completed)
+          await this.awardXp(
+            userId,
+            goal.level === 'daily' ? 'goal' : 'weekly_goal',
+            goal.level === 'daily' ? 5 : 10,
+          );
+        return toJson(
+          await this.prisma.goal.update({
+            where: { id: goal.id },
+            data: { completed: !goal.completed },
+          }),
+        );
       }
       case 'goal.delete':
-        return toJson(await this.prisma.goal.update({ where: { id: String(body.id) }, data: { deletedAt: new Date() } }));
+        return toJson(
+          await this.prisma.goal.update({
+            where: { id: String(body.id) },
+            data: { deletedAt: new Date() },
+          }),
+        );
       case 'goal.restore':
-        return toJson(await this.prisma.goal.update({ where: { id: String(body.id) }, data: { deletedAt: null } }));
+        return toJson(
+          await this.prisma.goal.update({
+            where: { id: String(body.id) },
+            data: { deletedAt: null },
+          }),
+        );
       case 'focusCycle.save': {
-        const cycleLengthDays = Math.max(1, asNumber(body.cycleLengthDays, DEFAULT_CYCLE_LENGTH_DAYS));
+        const cycleLengthDays = Math.max(
+          1,
+          asNumber(body.cycleLengthDays, DEFAULT_CYCLE_LENGTH_DAYS),
+        );
         const focusAreas = this.normalizeFocusAreas(body.focusAreas);
         const focusGoalId = body.focusGoalId ? String(body.focusGoalId) : null;
         if (focusGoalId) {
-          await this.prisma.goal.findFirstOrThrow({ where: active({ id: focusGoalId, userId, level: 'life' }) });
+          await this.prisma.goal.findFirstOrThrow({
+            where: active({ id: focusGoalId, userId, level: 'life' }),
+          });
         }
         const cycle = await this.currentFocusCycle(userId, t);
         return toJson(
@@ -812,11 +1175,16 @@ export class LedgerService {
         );
       }
       case 'focusCycle.start': {
-        const cycleLengthDays = Math.max(1, asNumber(body.cycleLengthDays, DEFAULT_CYCLE_LENGTH_DAYS));
+        const cycleLengthDays = Math.max(
+          1,
+          asNumber(body.cycleLengthDays, DEFAULT_CYCLE_LENGTH_DAYS),
+        );
         const focusAreas = this.normalizeFocusAreas(body.focusAreas);
         const focusGoalId = body.focusGoalId ? String(body.focusGoalId) : null;
         if (focusGoalId) {
-          await this.prisma.goal.findFirstOrThrow({ where: active({ id: focusGoalId, userId, level: 'life' }) });
+          await this.prisma.goal.findFirstOrThrow({
+            where: active({ id: focusGoalId, userId, level: 'life' }),
+          });
         }
         await this.prisma.focusCycle.updateMany({
           where: { userId, completedAt: null },
@@ -836,30 +1204,42 @@ export class LedgerService {
         );
       }
       case 'weeklyReflection.save': {
-        const reflectionWeekStart = body.weekStart ? dateOnly(String(body.weekStart)) : ws;
+        const reflectionWeekStart = body.weekStart
+          ? dateOnly(String(body.weekStart))
+          : ws;
         const thieves = Array.isArray(body.oneThingThieves)
           ? body.oneThingThieves.map((item) => String(item)).filter(Boolean)
           : [];
         return toJson(
           await this.prisma.weeklyReflection.upsert({
-            where: { userId_weekStart: { userId, weekStart: reflectionWeekStart } },
+            where: {
+              userId_weekStart: { userId, weekStart: reflectionWeekStart },
+            },
             update: {
               oneThingThieves: thieves,
-              oneThingReflection: body.oneThingReflection ? String(body.oneThingReflection) : null,
+              oneThingReflection: body.oneThingReflection
+                ? String(body.oneThingReflection)
+                : null,
             },
             create: {
               userId,
               weekStart: reflectionWeekStart,
               oneThingThieves: thieves,
-              oneThingReflection: body.oneThingReflection ? String(body.oneThingReflection) : null,
+              oneThingReflection: body.oneThingReflection
+                ? String(body.oneThingReflection)
+                : null,
             },
           }),
         );
       }
       case 'routine.add': {
-        const linkedGoalId = body.linkedGoalId ? String(body.linkedGoalId) : null;
+        const linkedGoalId = body.linkedGoalId
+          ? String(body.linkedGoalId)
+          : null;
         if (linkedGoalId) {
-          await this.prisma.goal.findFirstOrThrow({ where: active({ id: linkedGoalId, userId }) });
+          await this.prisma.goal.findFirstOrThrow({
+            where: active({ id: linkedGoalId, userId }),
+          });
         }
         return toJson(
           await this.prisma.routine.create({
@@ -874,9 +1254,13 @@ export class LedgerService {
         );
       }
       case 'routine.update': {
-        const linkedGoalId = body.linkedGoalId ? String(body.linkedGoalId) : null;
+        const linkedGoalId = body.linkedGoalId
+          ? String(body.linkedGoalId)
+          : null;
         if (linkedGoalId) {
-          await this.prisma.goal.findFirstOrThrow({ where: active({ id: linkedGoalId, userId }) });
+          await this.prisma.goal.findFirstOrThrow({
+            where: active({ id: linkedGoalId, userId }),
+          });
         }
         return toJson(
           await this.prisma.routine.update({
@@ -885,18 +1269,33 @@ export class LedgerService {
               name: String(body.name ?? ''),
               timeAnchor: body.timeAnchor ? String(body.timeAnchor) : null,
               linkedGoalId,
-              protected: body.protected === undefined ? undefined : body.protected === true || body.protected === 'true',
+              protected:
+                body.protected === undefined
+                  ? undefined
+                  : body.protected === true || body.protected === 'true',
             },
           }),
         );
       }
       case 'routine.delete':
-        return toJson(await this.prisma.routine.update({ where: { id: String(body.id) }, data: { deletedAt: new Date() } }));
+        return toJson(
+          await this.prisma.routine.update({
+            where: { id: String(body.id) },
+            data: { deletedAt: new Date() },
+          }),
+        );
       case 'routine.restore':
-        return toJson(await this.prisma.routine.update({ where: { id: String(body.id) }, data: { deletedAt: null } }));
+        return toJson(
+          await this.prisma.routine.update({
+            where: { id: String(body.id) },
+            data: { deletedAt: null },
+          }),
+        );
       case 'routineStep.add': {
         const routineId = String(body.routineId);
-        await this.prisma.routine.findFirstOrThrow({ where: active({ id: routineId, userId }) });
+        await this.prisma.routine.findFirstOrThrow({
+          where: active({ id: routineId, userId }),
+        });
         const stepType = checkedRoutineStepType(body.stepType);
         const maxStep = await this.prisma.routineStep.findFirst({
           where: active({ routineId, userId }),
@@ -917,8 +1316,12 @@ export class LedgerService {
         );
       }
       case 'routineStep.update': {
-        const existing = await this.prisma.routineStep.findFirstOrThrow({ where: active({ id: String(body.id), userId }) });
-        const stepType = checkedRoutineStepType(body.stepType ?? existing.stepType);
+        const existing = await this.prisma.routineStep.findFirstOrThrow({
+          where: active({ id: String(body.id), userId }),
+        });
+        const stepType = checkedRoutineStepType(
+          body.stepType ?? existing.stepType,
+        );
         const linkData = await this.routineStepLinkData(userId, stepType, body);
         return toJson(
           await this.prisma.routineStep.update({
@@ -932,60 +1335,120 @@ export class LedgerService {
         );
       }
       case 'routineStep.delete':
-        return toJson(await this.prisma.routineStep.update({ where: { id: String(body.id) }, data: { deletedAt: new Date() } }));
+        return toJson(
+          await this.prisma.routineStep.update({
+            where: { id: String(body.id) },
+            data: { deletedAt: new Date() },
+          }),
+        );
       case 'routineStep.restore':
-        return toJson(await this.prisma.routineStep.update({ where: { id: String(body.id) }, data: { deletedAt: null } }));
+        return toJson(
+          await this.prisma.routineStep.update({
+            where: { id: String(body.id) },
+            data: { deletedAt: null },
+          }),
+        );
       case 'routineStep.move': {
-        const step = await this.prisma.routineStep.findFirstOrThrow({ where: active({ id: String(body.id), userId }) });
-        const direction = String(body.direction ?? 'down') === 'up' ? 'up' : 'down';
+        const step = await this.prisma.routineStep.findFirstOrThrow({
+          where: active({ id: String(body.id), userId }),
+        });
+        const direction =
+          String(body.direction ?? 'down') === 'up' ? 'up' : 'down';
         const sibling = await this.prisma.routineStep.findFirst({
           where: active({
             userId,
             routineId: step.routineId,
-            orderIndex: direction === 'up' ? { lt: step.orderIndex } : { gt: step.orderIndex },
+            orderIndex:
+              direction === 'up'
+                ? { lt: step.orderIndex }
+                : { gt: step.orderIndex },
           }),
           orderBy: { orderIndex: direction === 'up' ? 'desc' : 'asc' },
         });
         if (!sibling) return toJson(step);
         await this.prisma.$transaction([
-          this.prisma.routineStep.update({ where: { id: step.id }, data: { orderIndex: sibling.orderIndex } }),
-          this.prisma.routineStep.update({ where: { id: sibling.id }, data: { orderIndex: step.orderIndex } }),
+          this.prisma.routineStep.update({
+            where: { id: step.id },
+            data: { orderIndex: sibling.orderIndex },
+          }),
+          this.prisma.routineStep.update({
+            where: { id: sibling.id },
+            data: { orderIndex: step.orderIndex },
+          }),
         ]);
         return { ok: true };
       }
       case 'routineStep.toggle': {
-        const step = await this.prisma.routineStep.findFirstOrThrow({ where: active({ id: String(body.id), userId }) });
+        const step = await this.prisma.routineStep.findFirstOrThrow({
+          where: active({ id: String(body.id), userId }),
+        });
         const stepType = checkedRoutineStepType(step.stepType);
         if (stepType === 'standalone') {
           const existing = await this.prisma.routineStepCompletion.findUnique({
-            where: { routineStepId_completedOn: { routineStepId: step.id, completedOn: t } },
+            where: {
+              routineStepId_completedOn: {
+                routineStepId: step.id,
+                completedOn: t,
+              },
+            },
           });
           if (existing) {
-            await this.prisma.routineStepCompletion.delete({ where: { id: existing.id } });
+            await this.prisma.routineStepCompletion.delete({
+              where: { id: existing.id },
+            });
             return { ok: true, completed: false };
           }
-          await this.prisma.routineStepCompletion.create({ data: { userId, routineStepId: step.id, completedOn: t } });
+          await this.prisma.routineStepCompletion.create({
+            data: { userId, routineStepId: step.id, completedOn: t },
+          });
           return { ok: true, completed: true };
         }
         if (stepType === 'habit' && step.linkedHabitId) {
-          const habit = await this.prisma.habit.findFirstOrThrow({ where: { id: step.linkedHabitId, userId } });
-          if (habit.lastCheckin && sameDate(habit.lastCheckin, t)) return toJson(habit);
+          const habit = await this.prisma.habit.findFirstOrThrow({
+            where: { id: step.linkedHabitId, userId },
+          });
+          if (habit.lastCheckin && sameDate(habit.lastCheckin, t))
+            return toJson(habit);
           const last = habit.lastCheckin ? dateOnly(habit.lastCheckin) : null;
-          const diff = last ? Math.round((t.getTime() - last.getTime()) / 86400000) : 999;
+          const diff = last
+            ? Math.round((t.getTime() - last.getTime()) / 86400000)
+            : 999;
           const streak = diff === 1 ? habit.currentStreak + 1 : 1;
           await this.awardXp(userId, 'habit', 5);
           return toJson(
             await this.prisma.habit.update({
               where: { id: habit.id },
-              data: { currentStreak: streak, longestStreak: Math.max(habit.longestStreak, streak), lastCheckin: t },
+              data: {
+                currentStreak: streak,
+                longestStreak: Math.max(habit.longestStreak, streak),
+                lastCheckin: t,
+              },
             }),
           );
         }
-        if ((stepType === 'daily_goal' || stepType === 'weekly_goal') && (step.linkedDailyGoalId || step.linkedWeeklyGoalId)) {
-          const goalId = stepType === 'daily_goal' ? step.linkedDailyGoalId : step.linkedWeeklyGoalId;
-          const goal = await this.prisma.goal.findFirstOrThrow({ where: { id: goalId ?? '', userId } });
-          if (!goal.completed) await this.awardXp(userId, stepType === 'daily_goal' ? 'goal' : 'weekly_goal', stepType === 'daily_goal' ? 5 : 10);
-          return toJson(await this.prisma.goal.update({ where: { id: goal.id }, data: { completed: !goal.completed } }));
+        if (
+          (stepType === 'daily_goal' || stepType === 'weekly_goal') &&
+          (step.linkedDailyGoalId || step.linkedWeeklyGoalId)
+        ) {
+          const goalId =
+            stepType === 'daily_goal'
+              ? step.linkedDailyGoalId
+              : step.linkedWeeklyGoalId;
+          const goal = await this.prisma.goal.findFirstOrThrow({
+            where: { id: goalId ?? '', userId },
+          });
+          if (!goal.completed)
+            await this.awardXp(
+              userId,
+              stepType === 'daily_goal' ? 'goal' : 'weekly_goal',
+              stepType === 'daily_goal' ? 5 : 10,
+            );
+          return toJson(
+            await this.prisma.goal.update({
+              where: { id: goal.id },
+              data: { completed: !goal.completed },
+            }),
+          );
         }
         return { ok: false, readOnly: true };
       }
@@ -1000,7 +1463,9 @@ export class LedgerService {
             principal: amount,
             balance: amount,
             interestRate: asNumber(body.interestRate),
-            tenureMonths: body.tenureMonths ? asNumber(body.tenureMonths) : null,
+            tenureMonths: body.tenureMonths
+              ? asNumber(body.tenureMonths)
+              : null,
             emiAmount: body.emiAmount ? asNumber(body.emiAmount) : null,
             dueDay: body.dueDay ? asNumber(body.dueDay, 1) : null,
           },
@@ -1009,38 +1474,48 @@ export class LedgerService {
         return toJson(debt);
       }
       case 'debt.delete': {
-        const debt = await this.prisma.debt.update({ where: { id: String(body.id) }, data: { deletedAt: new Date() } });
+        const debt = await this.prisma.debt.update({
+          where: { id: String(body.id) },
+          data: { deletedAt: new Date() },
+        });
         await this.recordNetWorthSnapshot(userId, t);
         return toJson(debt);
       }
-      case 'debt.update':
-      {
+      case 'debt.update': {
         const debt = await this.prisma.debt.update({
-            where: { id: String(body.id) },
-            data: {
-              name: String(body.name ?? ''),
-              linkedGoalId: body.linkedGoalId ? String(body.linkedGoalId) : null,
-              type: String(body.loanType ?? body.type ?? 'other'),
-              principal: body.principal == null ? undefined : asNumber(body.principal),
-              balance: body.balance == null ? undefined : asNumber(body.balance),
-              interestRate: asNumber(body.interestRate),
-              tenureMonths: body.tenureMonths ? asNumber(body.tenureMonths) : null,
-              emiAmount: body.emiAmount ? asNumber(body.emiAmount) : null,
-              dueDay: body.dueDay ? asNumber(body.dueDay, 1) : null,
-            },
-          });
+          where: { id: String(body.id) },
+          data: {
+            name: String(body.name ?? ''),
+            linkedGoalId: body.linkedGoalId ? String(body.linkedGoalId) : null,
+            type: String(body.loanType ?? body.type ?? 'other'),
+            principal:
+              body.principal == null ? undefined : asNumber(body.principal),
+            balance: body.balance == null ? undefined : asNumber(body.balance),
+            interestRate: asNumber(body.interestRate),
+            tenureMonths: body.tenureMonths
+              ? asNumber(body.tenureMonths)
+              : null,
+            emiAmount: body.emiAmount ? asNumber(body.emiAmount) : null,
+            dueDay: body.dueDay ? asNumber(body.dueDay, 1) : null,
+          },
+        });
         await this.recordNetWorthSnapshot(userId, t);
         return toJson(debt);
       }
       case 'debt.restore': {
-        const debt = await this.prisma.debt.update({ where: { id: String(body.id) }, data: { deletedAt: null } });
+        const debt = await this.prisma.debt.update({
+          where: { id: String(body.id) },
+          data: { deletedAt: null },
+        });
         await this.recordNetWorthSnapshot(userId, t);
         return toJson(debt);
       }
       case 'debt.pay': {
         const debtId = String(body.debtId);
         const amount = asNumber(body.amount);
-        const debt = await this.prisma.debt.findFirstOrThrow({ where: { id: debtId, userId, deletedAt: null } });
+        const debt = await this.prisma.debt.findFirstOrThrow({
+          where: { id: debtId, userId, deletedAt: null },
+        });
         const payment = applyPrincipalPayment(Number(debt.balance), amount);
         await this.prisma.$transaction(async (tx) => {
           const debtPayment = await tx.debtPayment.create({
@@ -1054,7 +1529,10 @@ export class LedgerService {
               resultingBalance: payment.resultingBalance,
             },
           });
-          await tx.debt.update({ where: { id: debtId }, data: { balance: payment.resultingBalance } });
+          await tx.debt.update({
+            where: { id: debtId },
+            data: { balance: payment.resultingBalance },
+          });
           await tx.financeTransaction.create({
             data: {
               userId,
@@ -1073,21 +1551,43 @@ export class LedgerService {
         return { ok: true };
       }
       case 'debtPayment.delete': {
-        const payment = await this.prisma.debtPayment.findFirstOrThrow({ where: { id: String(body.id), userId } });
+        const payment = await this.prisma.debtPayment.findFirstOrThrow({
+          where: { id: String(body.id), userId },
+        });
         await this.prisma.$transaction([
-          this.prisma.debtPayment.update({ where: { id: payment.id }, data: { deletedAt: new Date() } }),
-          this.prisma.debt.update({ where: { id: payment.debtId }, data: { balance: { increment: payment.principalPortion } } }),
-          this.prisma.financeTransaction.updateMany({ where: { userId, debtPaymentId: payment.id }, data: { deletedAt: new Date() } }),
+          this.prisma.debtPayment.update({
+            where: { id: payment.id },
+            data: { deletedAt: new Date() },
+          }),
+          this.prisma.debt.update({
+            where: { id: payment.debtId },
+            data: { balance: { increment: payment.principalPortion } },
+          }),
+          this.prisma.financeTransaction.updateMany({
+            where: { userId, debtPaymentId: payment.id },
+            data: { deletedAt: new Date() },
+          }),
         ]);
         await this.recordNetWorthSnapshot(userId, t);
         return { ok: true };
       }
       case 'debtPayment.restore': {
-        const payment = await this.prisma.debtPayment.findFirstOrThrow({ where: { id: String(body.id), userId } });
+        const payment = await this.prisma.debtPayment.findFirstOrThrow({
+          where: { id: String(body.id), userId },
+        });
         await this.prisma.$transaction([
-          this.prisma.debtPayment.update({ where: { id: payment.id }, data: { deletedAt: null } }),
-          this.prisma.debt.update({ where: { id: payment.debtId }, data: { balance: { decrement: payment.principalPortion } } }),
-          this.prisma.financeTransaction.updateMany({ where: { userId, debtPaymentId: payment.id }, data: { deletedAt: null } }),
+          this.prisma.debtPayment.update({
+            where: { id: payment.id },
+            data: { deletedAt: null },
+          }),
+          this.prisma.debt.update({
+            where: { id: payment.debtId },
+            data: { balance: { decrement: payment.principalPortion } },
+          }),
+          this.prisma.financeTransaction.updateMany({
+            where: { userId, debtPaymentId: payment.id },
+            data: { deletedAt: null },
+          }),
         ]);
         await this.recordNetWorthSnapshot(userId, t);
         return { ok: true };
@@ -1115,9 +1615,19 @@ export class LedgerService {
           }),
         );
       case 'income.delete':
-        return toJson(await this.prisma.incomeSource.update({ where: { id: String(body.id) }, data: { deletedAt: new Date() } }));
+        return toJson(
+          await this.prisma.incomeSource.update({
+            where: { id: String(body.id) },
+            data: { deletedAt: new Date() },
+          }),
+        );
       case 'income.restore':
-        return toJson(await this.prisma.incomeSource.update({ where: { id: String(body.id) }, data: { deletedAt: null } }));
+        return toJson(
+          await this.prisma.incomeSource.update({
+            where: { id: String(body.id) },
+            data: { deletedAt: null },
+          }),
+        );
       case 'asset.add': {
         const asset = await this.prisma.asset.create({
           data: {
@@ -1127,7 +1637,12 @@ export class LedgerService {
             currentValue: asNumber(body.currentValue),
           },
         });
-        await this.recordAssetSnapshot(userId, asset.id, Number(asset.currentValue), t);
+        await this.recordAssetSnapshot(
+          userId,
+          asset.id,
+          Number(asset.currentValue),
+          t,
+        );
         await this.recordNetWorthSnapshot(userId, t);
         return toJson(asset);
       }
@@ -1140,18 +1655,34 @@ export class LedgerService {
             currentValue: asNumber(body.currentValue),
           },
         });
-        await this.recordAssetSnapshot(userId, asset.id, Number(asset.currentValue), t);
+        await this.recordAssetSnapshot(
+          userId,
+          asset.id,
+          Number(asset.currentValue),
+          t,
+        );
         await this.recordNetWorthSnapshot(userId, t);
         return toJson(asset);
       }
       case 'asset.delete': {
-        const asset = await this.prisma.asset.update({ where: { id: String(body.id) }, data: { deletedAt: new Date() } });
+        const asset = await this.prisma.asset.update({
+          where: { id: String(body.id) },
+          data: { deletedAt: new Date() },
+        });
         await this.recordNetWorthSnapshot(userId, t);
         return toJson(asset);
       }
       case 'asset.restore': {
-        const asset = await this.prisma.asset.update({ where: { id: String(body.id) }, data: { deletedAt: null } });
-        await this.recordAssetSnapshot(userId, asset.id, Number(asset.currentValue), t);
+        const asset = await this.prisma.asset.update({
+          where: { id: String(body.id) },
+          data: { deletedAt: null },
+        });
+        await this.recordAssetSnapshot(
+          userId,
+          asset.id,
+          Number(asset.currentValue),
+          t,
+        );
         await this.recordNetWorthSnapshot(userId, t);
         return toJson(asset);
       }
@@ -1160,23 +1691,42 @@ export class LedgerService {
           await this.prisma.savings.upsert({
             where: { userId },
             update: {
-              balance: body.balance == null ? undefined : asNumber(body.balance),
-              goalAmount: body.goalAmount == null || body.goalAmount === '' ? null : asNumber(body.goalAmount),
-              linkedGoalId: body.linkedGoalId ? String(body.linkedGoalId) : null,
+              balance:
+                body.balance == null ? undefined : asNumber(body.balance),
+              goalAmount:
+                body.goalAmount == null || body.goalAmount === ''
+                  ? null
+                  : asNumber(body.goalAmount),
+              linkedGoalId: body.linkedGoalId
+                ? String(body.linkedGoalId)
+                : null,
             },
             create: {
               userId,
               balance: asNumber(body.balance),
-              goalAmount: body.goalAmount == null || body.goalAmount === '' ? null : asNumber(body.goalAmount),
-              linkedGoalId: body.linkedGoalId ? String(body.linkedGoalId) : null,
+              goalAmount:
+                body.goalAmount == null || body.goalAmount === ''
+                  ? null
+                  : asNumber(body.goalAmount),
+              linkedGoalId: body.linkedGoalId
+                ? String(body.linkedGoalId)
+                : null,
             },
           }),
         );
       case 'transaction.add': {
-        const transactionDate = body.date || body.transactionDate ? dateOnly(String(body.date ?? body.transactionDate)) : t;
-        const transactionType = checkedTransactionType(body.transactionType ?? body.type);
+        const transactionDate =
+          body.date || body.transactionDate
+            ? dateOnly(String(body.date ?? body.transactionDate))
+            : t;
+        const transactionType = checkedTransactionType(
+          body.transactionType ?? body.type,
+        );
         const amount = asNumber(body.amount);
-        const category = String(body.category ?? (transactionType === 'debt_payment' ? 'Debt' : 'Other'));
+        const category = String(
+          body.category ??
+            (transactionType === 'debt_payment' ? 'Debt' : 'Other'),
+        );
         const note = body.note ? String(body.note) : null;
 
         if (transactionType !== 'debt_payment') {
@@ -1195,9 +1745,14 @@ export class LedgerService {
         }
 
         const linkedDebtId = body.linkedDebtId ? String(body.linkedDebtId) : '';
-        if (!linkedDebtId) throw new BadRequestException('Debt payment transactions require a linked debt.');
+        if (!linkedDebtId)
+          throw new BadRequestException(
+            'Debt payment transactions require a linked debt.',
+          );
         const result = await this.prisma.$transaction(async (tx) => {
-          const debt = await tx.debt.findFirstOrThrow({ where: { id: linkedDebtId, userId, deletedAt: null } });
+          const debt = await tx.debt.findFirstOrThrow({
+            where: { id: linkedDebtId, userId, deletedAt: null },
+          });
           const payment = applyPrincipalPayment(Number(debt.balance), amount);
           const debtPayment = await tx.debtPayment.create({
             data: {
@@ -1211,7 +1766,10 @@ export class LedgerService {
               paidOn: transactionDate,
             },
           });
-          await tx.debt.update({ where: { id: linkedDebtId }, data: { balance: payment.resultingBalance } });
+          await tx.debt.update({
+            where: { id: linkedDebtId },
+            data: { balance: payment.resultingBalance },
+          });
           return tx.financeTransaction.create({
             data: {
               userId,
@@ -1230,19 +1788,38 @@ export class LedgerService {
         return toJson(result);
       }
       case 'transaction.update': {
-        const existing = await this.prisma.financeTransaction.findFirstOrThrow({ where: { id: String(body.id), userId } });
-        const transactionDate = body.date || body.transactionDate ? dateOnly(String(body.date ?? body.transactionDate)) : existing.transactionDate;
-        const transactionType = checkedTransactionType(body.transactionType ?? body.type ?? existing.type);
-        const amount = body.amount == null ? Number(existing.amount) : asNumber(body.amount);
+        const existing = await this.prisma.financeTransaction.findFirstOrThrow({
+          where: { id: String(body.id), userId },
+        });
+        const transactionDate =
+          body.date || body.transactionDate
+            ? dateOnly(String(body.date ?? body.transactionDate))
+            : existing.transactionDate;
+        const transactionType = checkedTransactionType(
+          body.transactionType ?? body.type ?? existing.type,
+        );
+        const amount =
+          body.amount == null ? Number(existing.amount) : asNumber(body.amount);
         const category = String(body.category ?? existing.category ?? 'Other');
-        const note = body.note == null ? existing.note : String(body.note || '');
-        const nextLinkedDebtId = body.linkedDebtId ? String(body.linkedDebtId) : null;
+        const note =
+          body.note == null ? existing.note : String(body.note || '');
+        const nextLinkedDebtId = body.linkedDebtId
+          ? String(body.linkedDebtId)
+          : null;
         const result = await this.prisma.$transaction(async (tx) => {
           if (existing.type === 'debt_payment' && existing.debtPaymentId) {
-            const oldPayment = await tx.debtPayment.findFirst({ where: { id: existing.debtPaymentId, userId } });
+            const oldPayment = await tx.debtPayment.findFirst({
+              where: { id: existing.debtPaymentId, userId },
+            });
             if (oldPayment && !oldPayment.deletedAt) {
-              await tx.debtPayment.update({ where: { id: oldPayment.id }, data: { deletedAt: new Date() } });
-              await tx.debt.update({ where: { id: oldPayment.debtId }, data: { balance: { increment: oldPayment.principalPortion } } });
+              await tx.debtPayment.update({
+                where: { id: oldPayment.id },
+                data: { deletedAt: new Date() },
+              });
+              await tx.debt.update({
+                where: { id: oldPayment.debtId },
+                data: { balance: { increment: oldPayment.principalPortion } },
+              });
             }
           }
 
@@ -1262,8 +1839,13 @@ export class LedgerService {
             });
           }
 
-          if (!nextLinkedDebtId) throw new BadRequestException('Debt payment transactions require a linked debt.');
-          const debt = await tx.debt.findFirstOrThrow({ where: { id: nextLinkedDebtId, userId, deletedAt: null } });
+          if (!nextLinkedDebtId)
+            throw new BadRequestException(
+              'Debt payment transactions require a linked debt.',
+            );
+          const debt = await tx.debt.findFirstOrThrow({
+            where: { id: nextLinkedDebtId, userId, deletedAt: null },
+          });
           const payment = applyPrincipalPayment(Number(debt.balance), amount);
           const debtPayment = await tx.debtPayment.create({
             data: {
@@ -1277,7 +1859,10 @@ export class LedgerService {
               paidOn: transactionDate,
             },
           });
-          await tx.debt.update({ where: { id: nextLinkedDebtId }, data: { balance: payment.resultingBalance } });
+          await tx.debt.update({
+            where: { id: nextLinkedDebtId },
+            data: { balance: payment.resultingBalance },
+          });
           return tx.financeTransaction.update({
             where: { id: existing.id },
             data: {
@@ -1292,43 +1877,77 @@ export class LedgerService {
             },
           });
         });
-        if (existing.type === 'debt_payment' || transactionType === 'debt_payment') await this.recordNetWorthSnapshot(userId, t);
+        if (
+          existing.type === 'debt_payment' ||
+          transactionType === 'debt_payment'
+        )
+          await this.recordNetWorthSnapshot(userId, t);
         return toJson(result);
       }
       case 'transaction.delete': {
-        const existing = await this.prisma.financeTransaction.findFirstOrThrow({ where: { id: String(body.id), userId } });
+        const existing = await this.prisma.financeTransaction.findFirstOrThrow({
+          where: { id: String(body.id), userId },
+        });
         await this.prisma.$transaction(async (tx) => {
-          await tx.financeTransaction.update({ where: { id: existing.id }, data: { deletedAt: new Date() } });
+          await tx.financeTransaction.update({
+            where: { id: existing.id },
+            data: { deletedAt: new Date() },
+          });
           if (existing.type === 'debt_payment' && existing.debtPaymentId) {
-            const payment = await tx.debtPayment.findFirst({ where: { id: existing.debtPaymentId, userId } });
+            const payment = await tx.debtPayment.findFirst({
+              where: { id: existing.debtPaymentId, userId },
+            });
             if (payment && !payment.deletedAt) {
-              await tx.debtPayment.update({ where: { id: payment.id }, data: { deletedAt: new Date() } });
-              await tx.debt.update({ where: { id: payment.debtId }, data: { balance: { increment: payment.principalPortion } } });
+              await tx.debtPayment.update({
+                where: { id: payment.id },
+                data: { deletedAt: new Date() },
+              });
+              await tx.debt.update({
+                where: { id: payment.debtId },
+                data: { balance: { increment: payment.principalPortion } },
+              });
             }
           }
         });
-        if (existing.type === 'debt_payment') await this.recordNetWorthSnapshot(userId, t);
+        if (existing.type === 'debt_payment')
+          await this.recordNetWorthSnapshot(userId, t);
         return { ok: true };
       }
       case 'transaction.restore': {
-        const existing = await this.prisma.financeTransaction.findFirstOrThrow({ where: { id: String(body.id), userId } });
+        const existing = await this.prisma.financeTransaction.findFirstOrThrow({
+          where: { id: String(body.id), userId },
+        });
         await this.prisma.$transaction(async (tx) => {
           if (existing.type === 'debt_payment' && existing.debtPaymentId) {
-            const payment = await tx.debtPayment.findFirst({ where: { id: existing.debtPaymentId, userId } });
+            const payment = await tx.debtPayment.findFirst({
+              where: { id: existing.debtPaymentId, userId },
+            });
             if (payment && payment.deletedAt) {
-              await tx.debtPayment.update({ where: { id: payment.id }, data: { deletedAt: null } });
-              await tx.debt.update({ where: { id: payment.debtId }, data: { balance: { decrement: payment.principalPortion } } });
+              await tx.debtPayment.update({
+                where: { id: payment.id },
+                data: { deletedAt: null },
+              });
+              await tx.debt.update({
+                where: { id: payment.debtId },
+                data: { balance: { decrement: payment.principalPortion } },
+              });
             }
           }
-          await tx.financeTransaction.update({ where: { id: existing.id }, data: { deletedAt: null } });
+          await tx.financeTransaction.update({
+            where: { id: existing.id },
+            data: { deletedAt: null },
+          });
         });
-        if (existing.type === 'debt_payment') await this.recordNetWorthSnapshot(userId, t);
+        if (existing.type === 'debt_payment')
+          await this.recordNetWorthSnapshot(userId, t);
         return { ok: true };
       }
       case 'financeMonth.save':
         return toJson(
           await this.prisma.financeMonth.upsert({
-            where: { userId_month: { userId, month: dateOnly(String(body.month)) } },
+            where: {
+              userId_month: { userId, month: dateOnly(String(body.month)) },
+            },
             update: {
               income: asNumber(body.income),
               expenses: asNumber(body.expenses),
@@ -1348,30 +1967,79 @@ export class LedgerService {
         return toJson(
           await this.prisma.financeMonth.update({
             where: { id: String(body.id) },
-            data: { income: asNumber(body.income), expenses: asNumber(body.expenses), debtPaid: asNumber(body.debtPaid) },
+            data: {
+              income: asNumber(body.income),
+              expenses: asNumber(body.expenses),
+              debtPaid: asNumber(body.debtPaid),
+            },
           }),
         );
       case 'financeMonth.delete':
-        return toJson(await this.prisma.financeMonth.update({ where: { id: String(body.id) }, data: { deletedAt: new Date() } }));
+        return toJson(
+          await this.prisma.financeMonth.update({
+            where: { id: String(body.id) },
+            data: { deletedAt: new Date() },
+          }),
+        );
       case 'financeMonth.restore':
-        return toJson(await this.prisma.financeMonth.update({ where: { id: String(body.id) }, data: { deletedAt: null } }));
+        return toJson(
+          await this.prisma.financeMonth.update({
+            where: { id: String(body.id) },
+            data: { deletedAt: null },
+          }),
+        );
       case 'weight.add':
         await this.awardXp(userId, 'weight', 5);
-        return toJson(await this.prisma.weightLog.create({ data: { userId, logDate: t, weight: asNumber(body.weight) } }));
+        return toJson(
+          await this.prisma.weightLog.create({
+            data: { userId, logDate: t, weight: asNumber(body.weight) },
+          }),
+        );
       case 'weight.update':
-        return toJson(await this.prisma.weightLog.update({ where: { id: String(body.id) }, data: { weight: asNumber(body.weight) } }));
+        return toJson(
+          await this.prisma.weightLog.update({
+            where: { id: String(body.id) },
+            data: { weight: asNumber(body.weight) },
+          }),
+        );
       case 'weight.delete':
-        return toJson(await this.prisma.weightLog.update({ where: { id: String(body.id) }, data: { deletedAt: new Date() } }));
+        return toJson(
+          await this.prisma.weightLog.update({
+            where: { id: String(body.id) },
+            data: { deletedAt: new Date() },
+          }),
+        );
       case 'weight.restore':
-        return toJson(await this.prisma.weightLog.update({ where: { id: String(body.id) }, data: { deletedAt: null } }));
+        return toJson(
+          await this.prisma.weightLog.update({
+            where: { id: String(body.id) },
+            data: { deletedAt: null },
+          }),
+        );
       case 'profile.goalWeight':
-        return toJson(await this.prisma.profile.update({ where: { id: userId }, data: { goalWeight: asNumber(body.goalWeight) } }));
+        return toJson(
+          await this.prisma.profile.update({
+            where: { id: userId },
+            data: { goalWeight: asNumber(body.goalWeight) },
+          }),
+        );
       case 'diet.save': {
-        const existing = await this.prisma.dietLog.findUnique({ where: { userId_logDate: { userId, logDate: t } } });
+        const existing = await this.prisma.dietLog.findUnique({
+          where: { userId_logDate: { userId, logDate: t } },
+        });
         const diet = await this.prisma.dietLog.upsert({
           where: { userId_logDate: { userId, logDate: t } },
-          update: { calories: asNumber(body.calories), protein: asNumber(body.protein), deletedAt: null },
-          create: { userId, logDate: t, calories: asNumber(body.calories), protein: asNumber(body.protein) },
+          update: {
+            calories: asNumber(body.calories),
+            protein: asNumber(body.protein),
+            deletedAt: null,
+          },
+          create: {
+            userId,
+            logDate: t,
+            calories: asNumber(body.calories),
+            protein: asNumber(body.protein),
+          },
         });
         if (!existing) await this.awardXp(userId, 'diet', 5);
         return toJson(diet);
@@ -1380,13 +2048,26 @@ export class LedgerService {
         return toJson(
           await this.prisma.dietLog.update({
             where: { id: String(body.id) },
-            data: { calories: asNumber(body.calories), protein: asNumber(body.protein) },
+            data: {
+              calories: asNumber(body.calories),
+              protein: asNumber(body.protein),
+            },
           }),
         );
       case 'diet.delete':
-        return toJson(await this.prisma.dietLog.update({ where: { id: String(body.id) }, data: { deletedAt: new Date() } }));
+        return toJson(
+          await this.prisma.dietLog.update({
+            where: { id: String(body.id) },
+            data: { deletedAt: new Date() },
+          }),
+        );
       case 'diet.restore':
-        return toJson(await this.prisma.dietLog.update({ where: { id: String(body.id) }, data: { deletedAt: null } }));
+        return toJson(
+          await this.prisma.dietLog.update({
+            where: { id: String(body.id) },
+            data: { deletedAt: null },
+          }),
+        );
       case 'workout.add':
         await this.awardXp(userId, 'workout', 10);
         return toJson(
@@ -1414,36 +2095,71 @@ export class LedgerService {
           }),
         );
       case 'workout.delete':
-        return toJson(await this.prisma.workoutLog.update({ where: { id: String(body.id) }, data: { deletedAt: new Date() } }));
+        return toJson(
+          await this.prisma.workoutLog.update({
+            where: { id: String(body.id) },
+            data: { deletedAt: new Date() },
+          }),
+        );
       case 'workout.restore':
-        return toJson(await this.prisma.workoutLog.update({ where: { id: String(body.id) }, data: { deletedAt: null } }));
+        return toJson(
+          await this.prisma.workoutLog.update({
+            where: { id: String(body.id) },
+            data: { deletedAt: null },
+          }),
+        );
       case 'sleep.add':
         await this.awardXp(userId, 'sleep', 5);
         return toJson(
           await this.prisma.sleepLog.create({
-            data: { userId, logDate: body.logDate ? dateOnly(String(body.logDate)) : t, hours: asNumber(body.hours), quality: asNumber(body.quality, 3) },
+            data: {
+              userId,
+              logDate: body.logDate ? dateOnly(String(body.logDate)) : t,
+              hours: asNumber(body.hours),
+              quality: asNumber(body.quality, 3),
+            },
           }),
         );
       case 'sleep.update':
         return toJson(
           await this.prisma.sleepLog.update({
             where: { id: String(body.id) },
-            data: { hours: asNumber(body.hours), quality: asNumber(body.quality, 3), logDate: body.logDate ? dateOnly(String(body.logDate)) : undefined },
+            data: {
+              hours: asNumber(body.hours),
+              quality: asNumber(body.quality, 3),
+              logDate: body.logDate
+                ? dateOnly(String(body.logDate))
+                : undefined,
+            },
           }),
         );
       case 'sleep.delete':
-        return toJson(await this.prisma.sleepLog.update({ where: { id: String(body.id) }, data: { deletedAt: new Date() } }));
+        return toJson(
+          await this.prisma.sleepLog.update({
+            where: { id: String(body.id) },
+            data: { deletedAt: new Date() },
+          }),
+        );
       case 'sleep.restore':
-        return toJson(await this.prisma.sleepLog.update({ where: { id: String(body.id) }, data: { deletedAt: null } }));
+        return toJson(
+          await this.prisma.sleepLog.update({
+            where: { id: String(body.id) },
+            data: { deletedAt: null },
+          }),
+        );
       case 'habit.add':
         return toJson(
           await this.prisma.habit.create({
             data: {
               userId,
-              linkedGoalId: body.linkedGoalId ? String(body.linkedGoalId) : null,
+              linkedGoalId: body.linkedGoalId
+                ? String(body.linkedGoalId)
+                : null,
               name: String(body.name ?? ''),
               kind: String(body.kind ?? 'build'),
-              whyThisMatters: body.whyThisMatters ? String(body.whyThisMatters) : null,
+              whyThisMatters: body.whyThisMatters
+                ? String(body.whyThisMatters)
+                : null,
               lastSlip: body.kind === 'break' ? t : null,
             },
           }),
@@ -1455,30 +2171,60 @@ export class LedgerService {
             data: {
               name: String(body.name ?? ''),
               kind: String(body.kind ?? 'build'),
-              linkedGoalId: body.linkedGoalId ? String(body.linkedGoalId) : null,
-              whyThisMatters: body.whyThisMatters === undefined ? undefined : body.whyThisMatters == null || body.whyThisMatters === '' ? null : String(body.whyThisMatters),
+              linkedGoalId: body.linkedGoalId
+                ? String(body.linkedGoalId)
+                : null,
+              whyThisMatters:
+                body.whyThisMatters === undefined
+                  ? undefined
+                  : body.whyThisMatters == null || body.whyThisMatters === ''
+                    ? null
+                    : String(body.whyThisMatters),
             },
           }),
         );
       case 'habit.checkin': {
-        const habit = await this.prisma.habit.findFirstOrThrow({ where: { id: String(body.id), userId } });
+        const habit = await this.prisma.habit.findFirstOrThrow({
+          where: { id: String(body.id), userId },
+        });
         const last = habit.lastCheckin ? dateOnly(habit.lastCheckin) : null;
-        const diff = last ? Math.round((t.getTime() - last.getTime()) / 86400000) : 999;
+        const diff = last
+          ? Math.round((t.getTime() - last.getTime()) / 86400000)
+          : 999;
         const streak = diff === 1 ? habit.currentStreak + 1 : 1;
         await this.awardXp(userId, 'habit', 5);
         return toJson(
           await this.prisma.habit.update({
             where: { id: habit.id },
-            data: { currentStreak: streak, longestStreak: Math.max(habit.longestStreak, streak), lastCheckin: t },
+            data: {
+              currentStreak: streak,
+              longestStreak: Math.max(habit.longestStreak, streak),
+              lastCheckin: t,
+            },
           }),
         );
       }
       case 'habit.slip':
-        return toJson(await this.prisma.habit.update({ where: { id: String(body.id) }, data: { currentStreak: 0, lastSlip: t } }));
+        return toJson(
+          await this.prisma.habit.update({
+            where: { id: String(body.id) },
+            data: { currentStreak: 0, lastSlip: t },
+          }),
+        );
       case 'habit.delete':
-        return toJson(await this.prisma.habit.update({ where: { id: String(body.id) }, data: { deletedAt: new Date() } }));
+        return toJson(
+          await this.prisma.habit.update({
+            where: { id: String(body.id) },
+            data: { deletedAt: new Date() },
+          }),
+        );
       case 'habit.restore':
-        return toJson(await this.prisma.habit.update({ where: { id: String(body.id) }, data: { deletedAt: null } }));
+        return toJson(
+          await this.prisma.habit.update({
+            where: { id: String(body.id) },
+            data: { deletedAt: null },
+          }),
+        );
       case 'relationship.add':
         return toJson(
           await this.prisma.relationshipCheckin.create({
@@ -1505,34 +2251,67 @@ export class LedgerService {
           }),
         );
       case 'relationship.delete':
-        return toJson(await this.prisma.relationshipCheckin.update({ where: { id: String(body.id) }, data: { deletedAt: new Date() } }));
+        return toJson(
+          await this.prisma.relationshipCheckin.update({
+            where: { id: String(body.id) },
+            data: { deletedAt: new Date() },
+          }),
+        );
       case 'relationship.restore':
-        return toJson(await this.prisma.relationshipCheckin.update({ where: { id: String(body.id) }, data: { deletedAt: null } }));
+        return toJson(
+          await this.prisma.relationshipCheckin.update({
+            where: { id: String(body.id) },
+            data: { deletedAt: null },
+          }),
+        );
       case 'importantDate.add':
         return toJson(
           await this.prisma.importantDate.create({
-            data: { userId, personName: String(body.personName ?? ''), kind: String(body.kind ?? ''), date: dateOnly(String(body.date)) },
+            data: {
+              userId,
+              personName: String(body.personName ?? ''),
+              kind: String(body.kind ?? ''),
+              date: dateOnly(String(body.date)),
+            },
           }),
         );
       case 'importantDate.update':
         return toJson(
           await this.prisma.importantDate.update({
             where: { id: String(body.id) },
-            data: { personName: String(body.personName ?? ''), kind: String(body.kind ?? ''), date: dateOnly(String(body.date)) },
+            data: {
+              personName: String(body.personName ?? ''),
+              kind: String(body.kind ?? ''),
+              date: dateOnly(String(body.date)),
+            },
           }),
         );
       case 'importantDate.delete':
-        return toJson(await this.prisma.importantDate.update({ where: { id: String(body.id) }, data: { deletedAt: new Date() } }));
+        return toJson(
+          await this.prisma.importantDate.update({
+            where: { id: String(body.id) },
+            data: { deletedAt: new Date() },
+          }),
+        );
       case 'importantDate.restore':
-        return toJson(await this.prisma.importantDate.update({ where: { id: String(body.id) }, data: { deletedAt: null } }));
+        return toJson(
+          await this.prisma.importantDate.update({
+            where: { id: String(body.id) },
+            data: { deletedAt: null },
+          }),
+        );
       case 'skill.add':
         return toJson(
           await this.prisma.skill.create({
             data: {
               userId,
               name: String(body.name ?? ''),
-              linkedGoalId: body.linkedGoalId ? String(body.linkedGoalId) : null,
-              targetDate: body.targetDate ? dateOnly(String(body.targetDate)) : null,
+              linkedGoalId: body.linkedGoalId
+                ? String(body.linkedGoalId)
+                : null,
+              targetDate: body.targetDate
+                ? dateOnly(String(body.targetDate))
+                : null,
               status: checkedSkillStage(body.status),
             },
           }),
@@ -1543,16 +2322,33 @@ export class LedgerService {
             where: { id: String(body.id) },
             data: {
               name: String(body.name ?? ''),
-              linkedGoalId: body.linkedGoalId ? String(body.linkedGoalId) : null,
-              targetDate: body.targetDate ? dateOnly(String(body.targetDate)) : null,
-              status: body.status == null ? undefined : checkedSkillStage(body.status),
+              linkedGoalId: body.linkedGoalId
+                ? String(body.linkedGoalId)
+                : null,
+              targetDate: body.targetDate
+                ? dateOnly(String(body.targetDate))
+                : null,
+              status:
+                body.status == null
+                  ? undefined
+                  : checkedSkillStage(body.status),
             },
           }),
         );
       case 'skill.delete':
-        return toJson(await this.prisma.skill.update({ where: { id: String(body.id) }, data: { deletedAt: new Date() } }));
+        return toJson(
+          await this.prisma.skill.update({
+            where: { id: String(body.id) },
+            data: { deletedAt: new Date() },
+          }),
+        );
       case 'skill.restore':
-        return toJson(await this.prisma.skill.update({ where: { id: String(body.id) }, data: { deletedAt: null } }));
+        return toJson(
+          await this.prisma.skill.update({
+            where: { id: String(body.id) },
+            data: { deletedAt: null },
+          }),
+        );
       case 'learning.add':
         await this.awardXp(userId, 'learning', 10);
         return toJson(
@@ -1578,9 +2374,19 @@ export class LedgerService {
           }),
         );
       case 'learning.delete':
-        return toJson(await this.prisma.learningSession.update({ where: { id: String(body.id) }, data: { deletedAt: new Date() } }));
+        return toJson(
+          await this.prisma.learningSession.update({
+            where: { id: String(body.id) },
+            data: { deletedAt: new Date() },
+          }),
+        );
       case 'learning.restore':
-        return toJson(await this.prisma.learningSession.update({ where: { id: String(body.id) }, data: { deletedAt: null } }));
+        return toJson(
+          await this.prisma.learningSession.update({
+            where: { id: String(body.id) },
+            data: { deletedAt: null },
+          }),
+        );
       default:
         throw new BadRequestException(`Unknown ledger action: ${type}`);
     }

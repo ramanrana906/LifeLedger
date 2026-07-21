@@ -1,4 +1,11 @@
-import { Body, Controller, Get, Headers, Post, UnauthorizedException } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Headers,
+  Post,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { LedgerService } from './ledger.service';
 
 interface ActionBody {
@@ -17,7 +24,10 @@ export class LedgerController {
   }
 
   @Post('action')
-  async action(@Headers('x-user-id') userId: string | undefined, @Body() body: ActionBody) {
+  async action(
+    @Headers('x-user-id') userId: string | undefined,
+    @Body() body: ActionBody,
+  ) {
     if (!userId) throw new UnauthorizedException('Missing user context.');
     if (!body.type) throw new UnauthorizedException('Missing action type.');
     return this.ledgerService.action(userId, body.type, body.payload ?? {});

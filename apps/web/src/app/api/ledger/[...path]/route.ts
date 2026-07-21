@@ -15,7 +15,8 @@ async function proxy(request: Request, params: Params) {
   }
 
   const { path } = await params;
-  const url = `${apiUrl}/ledger/${path.join('/')}`;
+  const search = new URL(request.url).search;
+  const url = `${apiUrl}/ledger/${path.join('/')}${search}`;
   const init: RequestInit = {
     method: request.method,
     headers: {
@@ -43,5 +44,17 @@ export async function GET(request: Request, context: { params: Params }) {
 }
 
 export async function POST(request: Request, context: { params: Params }) {
+  return proxy(request, context.params);
+}
+
+export async function PUT(request: Request, context: { params: Params }) {
+  return proxy(request, context.params);
+}
+
+export async function DELETE(request: Request, context: { params: Params }) {
+  return proxy(request, context.params);
+}
+
+export async function PATCH(request: Request, context: { params: Params }) {
   return proxy(request, context.params);
 }

@@ -21,7 +21,9 @@ export class AuthController {
     }
 
     if (body.password.length < 6) {
-      throw new UnauthorizedException('Password must be at least 6 characters.');
+      throw new UnauthorizedException(
+        'Password must be at least 6 characters.',
+      );
     }
 
     return this.authService.registerUser(body.email, body.password, body.name);

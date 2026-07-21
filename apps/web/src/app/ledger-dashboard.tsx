@@ -1,6 +1,6 @@
 'use client';
 
-import { FormEvent, useEffect, useRef, useState } from 'react';
+import { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Area,
   AreaChart,
@@ -229,6 +229,10 @@ function NavIcon({ name, className = '' }: { name: string; className?: string })
     sparkles: <><path d="M12 3l1.7 5.1L19 10l-5.3 1.9L12 17l-1.7-5.1L5 10l5.3-1.9L12 3Z" /><path d="M19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8L19 15Z" /></>,
     settings: <><path d="M12 15.5A3.5 3.5 0 1 0 12 8a3.5 3.5 0 0 0 0 7.5Z" /><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1A2 2 0 1 1 4.2 17l.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.6-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9l-.1-.1A2 2 0 1 1 7 4.2l.1.1a1.7 1.7 0 0 0 1.9.3h.1A1.7 1.7 0 0 0 10 3.1V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.9-.3l.1-.1A2 2 0 1 1 19.8 7l-.1.1a1.7 1.7 0 0 0-.3 1.9v.1A1.7 1.7 0 0 0 20.9 10H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1Z" /></>,
     inbox: <><path d="M22 12h-6l-2 3h-4l-2-3H2" /><path d="M5.5 5h13L22 12v6a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2v-6z" /></>,
+    menu: <><line x1="3" y1="6" x2="21" y2="6" /><line x1="3" y1="12" x2="21" y2="12" /><line x1="3" y1="18" x2="21" y2="18" /></>,
+    close: <><line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" /></>,
+    chevronLeft: <path d="m15 18-6-6 6-6" />,
+    chevronRight: <path d="m9 18 6-6-6-6" />,
   };
   return (
     <svg className={className} fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.8" viewBox="0 0 24 24">
@@ -331,6 +335,174 @@ function AxisLabel({ value, axis = 'x' }: { value: string; axis?: 'x' | 'y' }) {
 
 function SparkBox({ children }: { children: React.ReactNode }) {
   return <div className="h-24 w-full">{children}</div>;
+}
+
+function SvgCanvasTrendChart({
+  data,
+  valueKey,
+  unit = '',
+  strokeColor = colors.brass,
+  fillGradientId = 'trendGradient',
+  referenceValue,
+  referenceLabel = 'Target',
+  height = 200,
+}: {
+  data: Row[];
+  valueKey: string;
+  unit?: string;
+  strokeColor?: string;
+  fillGradientId?: string;
+  referenceValue?: number;
+  referenceLabel?: string;
+  height?: number;
+}) {
+  const [hoverIndex, setHoverIndex] = useState<number | null>(null);
+
+  if (!data || !data.length) {
+    return <ChartPlaceholder>No data points logged to display trend chart.</ChartPlaceholder>;
+  }
+
+  const values = data.map((d) => Number(d[valueKey] ?? 0));
+  const rawMin = Math.min(...values);
+  const rawMax = Math.max(...values);
+  const minVal = referenceValue !== undefined ? Math.min(rawMin, referenceValue) : rawMin;
+  const maxVal = referenceValue !== undefined ? Math.max(rawMax, referenceValue) : rawMax;
+  const spread = maxVal - minVal || 1;
+  const padding = { top: 25, bottom: 30, left: 48, right: 20 };
+  const chartWidth = 650;
+  const chartHeight = height;
+
+  const points = data.map((d, i) => {
+    const val = Number(d[valueKey] ?? 0);
+    const x = padding.left + (i / Math.max(data.length - 1, 1)) * (chartWidth - padding.left - padding.right);
+    const y = chartHeight - padding.bottom - ((val - minVal) / spread) * (chartHeight - padding.top - padding.bottom);
+    return { x, y, val, date: String(d.date) };
+  });
+
+  let pathD = '';
+  if (points.length === 1) {
+    pathD = `M ${padding.left} ${points[0].y} L ${chartWidth - padding.right} ${points[0].y}`;
+  } else {
+    pathD = points.reduce((acc, p, i) => {
+      if (i === 0) return `M ${p.x} ${p.y}`;
+      const prev = points[i - 1];
+      const cx1 = prev.x + (p.x - prev.x) / 2;
+      const cy1 = prev.y;
+      const cx2 = prev.x + (p.x - prev.x) / 2;
+      const cy2 = p.y;
+      return `${acc} C ${cx1} ${cy1}, ${cx2} ${cy2}, ${p.x} ${p.y}`;
+    }, '');
+  }
+
+  const areaD = `${pathD} L ${points[points.length - 1].x} ${chartHeight - padding.bottom} L ${points[0].x} ${chartHeight - padding.bottom} Z`;
+
+  let refY: number | null = null;
+  if (referenceValue !== undefined && Number.isFinite(referenceValue)) {
+    refY = chartHeight - padding.bottom - ((referenceValue - minVal) / spread) * (chartHeight - padding.top - padding.bottom);
+  }
+
+  const activePoint = hoverIndex !== null ? points[hoverIndex] : points[points.length - 1];
+  const firstPoint = points[0];
+  const delta = activePoint && firstPoint ? activePoint.val - firstPoint.val : 0;
+
+  return (
+    <div className="relative w-full overflow-hidden rounded-2xl border bg-card p-4 shadow-sm">
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2 border-b pb-3 text-xs text-[var(--muted)]">
+        <div className="flex items-center gap-3">
+          <span className="font-medium text-ink">
+            Current: <strong className="text-sm font-semibold tabular-nums text-brass">{activePoint ? `${activePoint.val.toFixed(1)} ${unit}`.trim() : '-'}</strong>
+          </span>
+          {delta !== 0 ? (
+            <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold tabular-nums ${delta > 0 ? 'bg-moss/10 text-moss' : 'bg-wax/10 text-wax'}`}>
+              {delta > 0 ? '↑ +' : '↓ '}{delta.toFixed(1)} {unit}
+            </span>
+          ) : null}
+        </div>
+        <div className="flex items-center gap-3 text-[11px]">
+          <span>Min: <strong className="tabular-nums text-ink">{minVal.toFixed(1)}</strong></span>
+          <span>Max: <strong className="tabular-nums text-ink">{maxVal.toFixed(1)}</strong></span>
+        </div>
+      </div>
+
+      <div className="relative w-full" style={{ height: `${chartHeight}px` }}>
+        <svg
+          viewBox={`0 0 ${chartWidth} ${chartHeight}`}
+          className="h-full w-full overflow-visible"
+          preserveAspectRatio="none"
+        >
+          <defs>
+            <linearGradient id={fillGradientId} x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor={strokeColor} stopOpacity={0.28} />
+              <stop offset="100%" stopColor={strokeColor} stopOpacity={0.01} />
+            </linearGradient>
+          </defs>
+
+          {[0, 0.33, 0.66, 1].map((ratio, idx) => {
+            const y = padding.top + ratio * (chartHeight - padding.top - padding.bottom);
+            const val = maxVal - ratio * spread;
+            return (
+              <g key={`grid-${idx}`}>
+                <line x1={padding.left} y1={y} x2={chartWidth - padding.right} y2={y} stroke={gridStroke} strokeDasharray="3 3" />
+                <text x={padding.left - 6} y={y + 3} textAnchor="end" fontSize="10" fill={colors.muted}>
+                  {val.toFixed(0)}
+                </text>
+              </g>
+            );
+          })}
+
+          {refY !== null && (
+            <g>
+              <line x1={padding.left} y1={refY} x2={chartWidth - padding.right} y2={refY} stroke={colors.moss} strokeWidth="1.5" strokeDasharray="4 4" />
+              <text x={chartWidth - padding.right} y={refY - 4} textAnchor="end" fontSize="10" fontWeight="600" fill={colors.moss}>
+                {referenceLabel}: {referenceValue} {unit}
+              </text>
+            </g>
+          )}
+
+          <path d={areaD} fill={`url(#${fillGradientId})`} />
+          <path d={pathD} fill="none" stroke={strokeColor} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+
+          {points.map((p, i) => {
+            const isHovered = hoverIndex === i || (hoverIndex === null && i === points.length - 1);
+            return (
+              <g key={`pt-${i}`} className="cursor-pointer">
+                <circle
+                  cx={p.x}
+                  cy={p.y}
+                  r={isHovered ? 4.5 : points.length > 25 ? 0 : 2}
+                  fill={isHovered ? strokeColor : 'white'}
+                  stroke={strokeColor}
+                  strokeWidth={isHovered ? 3 : 1.5}
+                />
+                <rect
+                  x={p.x - chartWidth / Math.max(points.length, 1) / 2}
+                  y={0}
+                  width={chartWidth / Math.max(points.length, 1)}
+                  height={chartHeight}
+                  fill="transparent"
+                  onMouseEnter={() => setHoverIndex(i)}
+                  onMouseLeave={() => setHoverIndex(null)}
+                />
+              </g>
+            );
+          })}
+        </svg>
+
+        {activePoint && hoverIndex !== null && (
+          <div
+            className="pointer-events-none absolute z-20 rounded-xl border border-rule bg-card/95 px-3 py-1.5 text-xs shadow-md backdrop-blur-md transition-all duration-150"
+            style={{
+              left: `${Math.min(Math.max(activePoint.x - 40, 10), chartWidth - 90)}px`,
+              top: `${Math.max(activePoint.y - 42, 5)}px`,
+            }}
+          >
+            <div className="font-semibold text-ink">{activePoint.date}</div>
+            <div className="text-slate-600 font-medium">{activePoint.val.toFixed(2)} {unit}</div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
 }
 
 function ChartTooltip({ active, payload, label }: { active?: boolean; payload?: { name?: string; value?: number | string; color?: string }[]; label?: string }) {
@@ -803,6 +975,7 @@ export function LedgerDashboard({ name }: { name?: string | null }) {
     };
   }, []);
 
+  const [sidebarOpen, setSidebarOpen] = useState(true);
   const xpToNext = Math.max((data?.stats?.level ?? 1) * 100, 100);
   const xp = data?.stats?.xp ?? 0;
   const xpPct = Math.min(100, Math.round((xp / xpToNext) * 100));
@@ -811,34 +984,68 @@ export function LedgerDashboard({ name }: { name?: string | null }) {
 
   return (
     <div className="min-h-screen bg-background text-foreground md:flex">
-      <aside className="bg-[var(--sidebar)] text-white md:sticky md:top-0 md:h-screen md:w-[260px] md:shrink-0">
-        <div className="border-b border-white/10 p-6">
+      {/* Mobile Backdrop */}
+      {sidebarOpen && (
+        <div
+          onClick={() => setSidebarOpen(false)}
+          className="fixed inset-0 z-40 bg-slate-950/60 backdrop-blur-xs transition-opacity md:hidden"
+        />
+      )}
+
+      {/* Sidebar Drawer */}
+      <aside
+        className={`fixed inset-y-0 left-0 z-50 flex h-full flex-col bg-[var(--sidebar)] text-white shadow-2xl transition-all duration-300 ease-in-out md:sticky md:top-0 md:h-screen md:shadow-none ${
+          sidebarOpen
+            ? 'translate-x-0 w-[260px] md:w-[260px] md:opacity-100 md:pointer-events-auto'
+            : '-translate-x-full md:translate-x-0 md:w-0 md:opacity-0 md:pointer-events-none overflow-hidden'
+        }`}
+      >
+        <div className="flex shrink-0 items-center justify-between border-b border-white/10 p-5">
           <div className="flex items-center gap-3">
-            <AppLogoMark className="h-11 w-11 shrink-0 shadow-[0_16px_34px_rgba(79,70,229,0.26)]" />
+            <AppLogoMark className="h-10 w-10 shrink-0 shadow-[0_16px_34px_rgba(79,70,229,0.26)]" />
             <div className="min-w-0">
-              <div className="text-base font-semibold tracking-tight">Life Ledger</div>
-              <div className="mt-1 text-xs text-slate-400">Personal operating system</div>
+              <div className="text-base font-semibold tracking-tight text-white">Life Ledger</div>
+              <div className="text-xs text-slate-400">Personal operating system</div>
             </div>
           </div>
+          <button
+            type="button"
+            onClick={() => setSidebarOpen(false)}
+            className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 hover:bg-white/10 hover:text-white transition"
+            title="Close navigation"
+          >
+            <NavIcon name="close" className="h-4 w-4" />
+          </button>
         </div>
-        <nav className="flex gap-1 overflow-x-auto p-2 md:block md:space-y-1 md:p-3">
+
+        {/* Scrollable Navigation */}
+        <nav className="min-h-0 flex-1 space-y-1 overflow-y-auto p-3 scrollbar-thin scrollbar-thumb-white/10 hover:scrollbar-thumb-white/20">
           {tabs.map((tab) => (
             <button
               key={tab.key}
               data-tab={tab.key}
-              onClick={() => setActive(tab.key)}
+              onClick={() => {
+                setActive(tab.key);
+                if (typeof window !== 'undefined' && window.innerWidth < 768) {
+                  setSidebarOpen(false);
+                }
+              }}
               className={`flex min-h-11 w-full items-center gap-3 whitespace-nowrap rounded-xl px-3 py-2.5 text-left text-sm font-medium transition ${
-                active === tab.key ? 'bg-[#EEF2FF] text-[#4338CA] shadow-sm' : 'text-slate-400 hover:bg-white/10 hover:text-white active:scale-[0.99]'
+                active === tab.key
+                  ? 'bg-[#EEF2FF] text-[#4338CA] font-semibold shadow-sm'
+                  : 'text-slate-400 hover:bg-white/10 hover:text-white active:scale-[0.99]'
               }`}
             >
-              <NavIcon name={tab.icon} className={`h-4 w-4 ${active === tab.key ? 'text-[#4338CA]' : 'text-slate-500'}`} />
-              {tab.key}
+              <NavIcon name={tab.icon} className={`h-4 w-4 shrink-0 ${active === tab.key ? 'text-[#4338CA]' : 'text-slate-400'}`} />
+              <span className="truncate">{tab.key}</span>
             </button>
           ))}
         </nav>
-        <div className="hidden border-t border-white/10 p-4 md:block">
+
+        {/* Profile Footer */}
+        <div className="shrink-0 border-t border-white/10 bg-slate-900/60 p-4">
           <div className="mb-3 flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-[#4F46E5] text-sm font-semibold text-white ring-2 ring-white/10">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#4F46E5] text-sm font-semibold text-white ring-2 ring-white/10">
               {initials}
             </div>
             <div className="min-w-0">
@@ -851,11 +1058,21 @@ export function LedgerDashboard({ name }: { name?: string | null }) {
       </aside>
 
       <main className="min-w-0 flex-1">
-        <header className="sticky top-0 z-30 border-b border-rule bg-background/85 px-5 py-4 shadow-[0_1px_0_rgba(15,23,42,0.03)] backdrop-blur-xl md:px-8">
-          <div className="flex flex-wrap items-center gap-4">
-            <div className="mr-auto min-w-56">
+        <header className="sticky top-0 z-30 border-b border-rule bg-background/85 px-4 py-4 shadow-[0_1px_0_rgba(15,23,42,0.03)] backdrop-blur-xl md:px-8">
+          <div className="flex flex-wrap items-center gap-3 sm:gap-4">
+            <button
+              type="button"
+              onClick={() => setSidebarOpen((prev) => !prev)}
+              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-rule bg-card text-slate-700 shadow-sm transition hover:border-brass hover:bg-indigo-50/50 hover:text-brass active:scale-95"
+              title={sidebarOpen ? "Hide sidebar navigation" : "Open sidebar navigation"}
+              aria-label="Toggle sidebar drawer"
+            >
+              <NavIcon name={sidebarOpen ? "chevronLeft" : "menu"} className="h-5 w-5" />
+            </button>
+
+            <div className="mr-auto min-w-48">
               <div className="label-caps">Personal OS</div>
-              <h1 className="text-[32px] font-semibold leading-tight tracking-tight text-ink">Welcome back, {firstName}</h1>
+              <h1 className="text-2xl font-semibold leading-tight tracking-tight text-ink sm:text-[32px]">Welcome back, {firstName}</h1>
             </div>
 
             <label className="hidden min-h-11 w-full max-w-md items-center gap-3 rounded-2xl border border-rule bg-card px-4 text-sm text-[var(--muted)] shadow-sm lg:flex">
@@ -960,48 +1177,6 @@ function Today({ data, action, saving }: { data: Dashboard; action: (type: strin
         </div>
       ) : null}
 
-      <div className="grid gap-6 xl:grid-cols-[1.45fr_0.8fr]">
-        <CurrentFocusPanel data={data} action={action} />
-        <AIInsightCard data={data} />
-      </div>
-
-      <TodayRoutines data={data} action={action} />
-
-      <div className="grid gap-4 md:grid-cols-4">
-        <div className="stat-card border-l-4 border-l-brass p-5">
-          <Stat label="Streak" value={`${data.stats?.currentStreak ?? 0}d`} tone="text-brass" />
-        </div>
-        <div className="stat-card border-l-4 border-l-moss p-5">
-          <div className="label-caps mb-2">Level {data.stats?.level ?? 1}</div>
-          <ProgressBar value={xp} max={xpToNext} />
-          <div className="mt-1 text-xs text-[var(--muted)]">{xp}/{xpToNext} XP</div>
-        </div>
-        <div className="stat-card border-l-4 border-l-[#06B6D4] p-5">
-          <Stat label="Days logged" value={`${daysLoggedThisWeek(data)}/7`} tone="text-moss" />
-        </div>
-        <div className="stat-card border-l-4 border-l-wax p-5">
-          <Stat
-            label={latestWeight && previousWeight ? 'Weight trend' : 'Debt paid'}
-            value={latestWeight && previousWeight ? `${Number(latestWeight) <= Number(previousWeight) ? '↓' : '↑'} ${Math.abs(Number(latestWeight) - Number(previousWeight)).toFixed(1)}` : Number(debtPaidThisMonth).toFixed(0)}
-            tone={latestWeight && previousWeight && Number(latestWeight) > Number(previousWeight) ? 'text-wax' : 'text-moss'}
-          />
-        </div>
-      </div>
-
-      <ExecutiveSnapshots data={data} />
-
-      <Parchment title="Last 90 Days" eyebrow="Activity heatmap">
-        <Heatmap days={moduleCountsByDay(data, 90)} />
-        <div className="mt-3 flex items-center gap-2 text-xs text-[var(--muted)]">
-          <span>Less</span>
-          <span className="h-3 w-3 rounded-[3px] border border-rule bg-card" />
-          <span className="h-3 w-3 rounded-[3px] border border-brass/20 bg-brass/25" />
-          <span className="h-3 w-3 rounded-[3px] border border-brass/30 bg-brass/55" />
-          <span className="h-3 w-3 rounded-[3px] border border-brass/40 bg-brass" />
-          <span>More</span>
-        </div>
-      </Parchment>
-
       <Parchment title="Today's Entry" eyebrow={new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' })}>
         <div className="flex flex-wrap gap-2">
           {moods.map((item) => (
@@ -1043,6 +1218,48 @@ function Today({ data, action, saving }: { data: Dashboard; action: (type: strin
             {data.journal?.id ? <button disabled={saving} className="btn" onClick={() => action('journal.delete', { id: data.journal?.id, label: 'Journal entry' })}>Delete</button> : null}
             <button disabled={saving} className="btn btn-primary" onClick={() => action('journal.save', { mood, body, goalIds: taggedGoalIds, habitIds: taggedHabitIds })}>Save entry</button>
           </div>
+        </div>
+      </Parchment>
+
+      <div className="grid gap-6 xl:grid-cols-[1.45fr_0.8fr]">
+        <CurrentFocusPanel data={data} action={action} />
+        <AIInsightCard data={data} />
+      </div>
+
+      <TodayRoutines data={data} action={action} />
+
+      <div className="grid gap-4 md:grid-cols-4">
+        <div className="stat-card border-l-4 border-l-brass p-5">
+          <Stat label="Streak" value={`${data.stats?.currentStreak ?? 0}d`} tone="text-brass" />
+        </div>
+        <div className="stat-card border-l-4 border-l-moss p-5">
+          <div className="label-caps mb-2">Level {data.stats?.level ?? 1}</div>
+          <ProgressBar value={xp} max={xpToNext} />
+          <div className="mt-1 text-xs text-[var(--muted)]">{xp}/{xpToNext} XP</div>
+        </div>
+        <div className="stat-card border-l-4 border-l-[#06B6D4] p-5">
+          <Stat label="Days logged" value={`${daysLoggedThisWeek(data)}/7`} tone="text-moss" />
+        </div>
+        <div className="stat-card border-l-4 border-l-wax p-5">
+          <Stat
+            label={latestWeight && previousWeight ? 'Weight trend' : 'Debt paid'}
+            value={latestWeight && previousWeight ? `${Number(latestWeight) <= Number(previousWeight) ? '↓' : '↑'} ${Math.abs(Number(latestWeight) - Number(previousWeight)).toFixed(1)}` : Number(debtPaidThisMonth).toFixed(0)}
+            tone={latestWeight && previousWeight && Number(latestWeight) > Number(previousWeight) ? 'text-wax' : 'text-moss'}
+          />
+        </div>
+      </div>
+
+      <ExecutiveSnapshots data={data} />
+
+      <Parchment title="Last 90 Days" eyebrow="Activity heatmap">
+        <Heatmap days={moduleCountsByDay(data, 90)} />
+        <div className="mt-3 flex items-center gap-2 text-xs text-[var(--muted)]">
+          <span>Less</span>
+          <span className="h-3 w-3 rounded-[3px] border border-rule bg-card" />
+          <span className="h-3 w-3 rounded-[3px] border border-brass/20 bg-brass/25" />
+          <span className="h-3 w-3 rounded-[3px] border border-brass/30 bg-brass/55" />
+          <span className="h-3 w-3 rounded-[3px] border border-brass/40 bg-brass" />
+          <span>More</span>
         </div>
       </Parchment>
 
@@ -1365,12 +1582,185 @@ function QuickLogStrip() {
   );
 }
 
+function GoalGraphDiagram({ data, action }: { data: Dashboard; action: (type: string, payload?: Row) => Promise<void> }) {
+  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+
+  const lifeGoals = data.goals.filter((g) => g.level === 'life');
+  const monthlyGoals = data.goals.filter((g) => g.level === 'monthly');
+  const weeklyGoals = data.goals.filter((g) => g.level === 'weekly');
+  const dailyGoals = data.goals.filter((g) => g.level === 'daily');
+
+  const tiers = [lifeGoals, monthlyGoals, weeklyGoals, dailyGoals].filter((tier) => tier.length > 0);
+
+  if (data.goals.length === 0) {
+    return <Empty tone="moss">No goals added yet. Create a North Star goal to see the graph diagram.</Empty>;
+  }
+
+  const containerWidth = 920;
+  const nodeWidth = 160;
+  const nodeHeight = 56;
+  const rowGap = 90;
+  const paddingTop = 40;
+  const paddingLeft = 40;
+
+  const nodePositions = new Map<string, { x: number; y: number; goal: Row }>();
+
+  tiers.forEach((tier, tierIdx) => {
+    const y = paddingTop + tierIdx * (nodeHeight + rowGap);
+    const count = tier.length;
+    const totalW = containerWidth - paddingLeft * 2;
+    const step = totalW / count;
+
+    tier.forEach((goal, itemIdx) => {
+      const x = paddingLeft + (itemIdx + 0.5) * step - nodeWidth / 2;
+      nodePositions.set(String(goal.id), { x, y, goal });
+    });
+  });
+
+  const chartHeight = paddingTop * 2 + tiers.length * (nodeHeight + rowGap);
+
+  const connections: Array<{
+    id: string;
+    parentPos: { x: number; y: number };
+    childPos: { x: number; y: number };
+    parentId: string;
+    childId: string;
+  }> = [];
+
+  data.goals.forEach((goal) => {
+    if (goal.parentGoalId) {
+      const parentPos = nodePositions.get(String(goal.parentGoalId));
+      const childPos = nodePositions.get(String(goal.id));
+      if (parentPos && childPos) {
+        connections.push({
+          id: `${goal.parentGoalId}->${goal.id}`,
+          parentPos: { x: parentPos.x + nodeWidth / 2, y: parentPos.y + nodeHeight },
+          childPos: { x: childPos.x + nodeWidth / 2, y: childPos.y },
+          parentId: String(goal.parentGoalId),
+          childId: String(goal.id),
+        });
+      }
+    }
+  });
+
+  return (
+    <div className="relative w-full overflow-x-auto rounded-3xl border border-slate-800 bg-slate-950 p-6 text-white shadow-2xl">
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 pb-3">
+        <div className="flex items-center gap-2">
+          <span className="h-3 w-3 rounded-full bg-indigo-500 animate-pulse" />
+          <h4 className="text-sm font-semibold tracking-wide text-slate-200">Flowchart Mindmap Graph</h4>
+        </div>
+        <div className="text-xs text-slate-400">
+          Click any goal node to highlight connection pathways
+        </div>
+      </div>
+
+      <div className="relative min-w-[860px]" style={{ height: `${chartHeight}px` }}>
+        <svg
+          className="absolute inset-0 h-full w-full pointer-events-none overflow-visible"
+          viewBox={`0 0 ${containerWidth} ${chartHeight}`}
+        >
+          <defs>
+            <marker
+              id="graph-arrow-head"
+              viewBox="0 0 10 10"
+              refX="6"
+              refY="5"
+              markerWidth="6"
+              markerHeight="6"
+              orient="auto-start-reverse"
+            >
+              <path d="M 0 1 L 10 5 L 0 9 z" fill="#818CF8" />
+            </marker>
+            <linearGradient id="curveLineGrad" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="#6366F1" />
+              <stop offset="100%" stopColor="#818CF8" />
+            </linearGradient>
+          </defs>
+
+          {connections.map((conn) => {
+            const isHighlighted = selectedNodeId === conn.parentId || selectedNodeId === conn.childId;
+            const yMid = conn.parentPos.y + (conn.childPos.y - conn.parentPos.y) / 2;
+            const pathD = `M ${conn.parentPos.x} ${conn.parentPos.y} C ${conn.parentPos.x} ${yMid}, ${conn.childPos.x} ${yMid}, ${conn.childPos.x} ${conn.childPos.y}`;
+
+            return (
+              <path
+                key={conn.id}
+                d={pathD}
+                fill="none"
+                stroke={isHighlighted ? "#F59E0B" : "url(#curveLineGrad)"}
+                strokeWidth={isHighlighted ? 3.5 : 2}
+                markerEnd="url(#graph-arrow-head)"
+                className="transition-all duration-300"
+              />
+            );
+          })}
+        </svg>
+
+        {Array.from(nodePositions.values()).map(({ x, y, goal }) => {
+          const isSelected = selectedNodeId === String(goal.id);
+          const canComplete = goal.level === 'daily' || goal.level === 'weekly';
+          const levelColor = {
+            life: 'bg-indigo-600 border-indigo-400 text-white shadow-indigo-500/30',
+            monthly: 'bg-indigo-700 border-indigo-500 text-white shadow-indigo-500/20',
+            weekly: 'bg-emerald-700 border-emerald-500 text-white shadow-emerald-500/20',
+            daily: 'bg-slate-800 border-slate-600 text-slate-200 shadow-slate-900/60',
+          }[String(goal.level)] ?? 'bg-slate-800 border-slate-600 text-white';
+
+          return (
+            <div
+              key={goal.id}
+              onClick={() => setSelectedNodeId((prev) => (prev === String(goal.id) ? null : String(goal.id)))}
+              className={`absolute cursor-pointer rounded-2xl border-2 px-3 py-2.5 shadow-lg transition-all duration-300 hover:scale-105 ${levelColor} ${
+                isSelected ? 'ring-4 ring-amber-400 border-amber-300 scale-105 z-30' : 'z-10'
+              }`}
+              style={{
+                left: `${x}px`,
+                top: `${y}px`,
+                width: `${nodeWidth}px`,
+                height: `${nodeHeight}px`,
+              }}
+            >
+              <div className="flex items-center justify-between gap-1">
+                <span className="truncate text-[9px] font-bold uppercase tracking-wider opacity-85">
+                  {goalLevelLabel(String(goal.level))}
+                </span>
+                {canComplete && (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      action('goal.toggle', { id: goal.id });
+                    }}
+                    className={`h-4 w-4 shrink-0 rounded-full border text-[9px] font-bold flex items-center justify-center transition ${
+                      goal.completed ? 'bg-emerald-500 border-emerald-400 text-white' : 'border-slate-400 hover:border-white'
+                    }`}
+                  >
+                    {goal.completed ? '✓' : ''}
+                  </button>
+                )}
+              </div>
+              <div className={`mt-1 truncate text-xs font-semibold leading-tight ${goal.completed ? 'line-through opacity-60' : ''}`}>
+                {goal.title}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 function Goals({ data, action }: { data: Dashboard; action: (type: string, payload?: Row) => Promise<void> }) {
+  const [viewMode, setViewMode] = useState<'tree' | 'graph'>('tree');
+  const allGoalIds = Array.from(new Set(data.goals.map((g) => String(g.id))));
   const [expanded, setExpanded] = useState<Set<string>>(() => {
     const focusGoal = currentFocusGoal(data);
-    return new Set(focusGoal ? [String(focusGoal.id)] : []);
+    return new Set(focusGoal ? [String(focusGoal.id)] : allGoalIds);
   });
+
   const roots = goalChildren(data, null);
+
   const toggleExpanded = (id: string) => {
     setExpanded((current) => {
       const next = new Set(current);
@@ -1379,24 +1769,100 @@ function Goals({ data, action }: { data: Dashboard; action: (type: string, paylo
       return next;
     });
   };
+
+  const expandAll = () => setExpanded(new Set(allGoalIds));
+  const collapseAll = () => setExpanded(new Set());
+
+  const lifeCount = data.goals.filter((g) => g.level === 'life').length;
+  const monthlyCount = data.goals.filter((g) => g.level === 'monthly').length;
+  const weeklyCount = data.goals.filter((g) => g.level === 'weekly').length;
+  const dailyCount = data.goals.filter((g) => g.level === 'daily').length;
+
   return (
-    <div className="space-y-5">
-      <Parchment title="Goal Tree" eyebrow="North Star to daily">
-        <GoalAddForm data={data} action={action} showLevelSelect />
-        {roots.length === 0 ? <Empty tone="moss">No goals added yet.</Empty> : null}
-        <div className="space-y-3">
-          {roots.map((goal) => (
-            <GoalTreeItem
-              key={goal.id}
-              data={data}
-              goal={goal}
-              depth={0}
-              expanded={expanded}
-              toggleExpanded={toggleExpanded}
-              action={action}
-            />
-          ))}
+    <div className="space-y-6">
+      <Parchment
+        title="Goal Tree"
+        eyebrow="North Star → Monthly → Weekly → Daily"
+        action={
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="flex items-center rounded-xl border border-rule bg-card p-0.5 shadow-2xs">
+              <button
+                type="button"
+                onClick={() => setViewMode('tree')}
+                className={`rounded-lg px-2.5 py-1 text-xs font-semibold transition ${
+                  viewMode === 'tree' ? 'bg-brass text-white shadow-xs' : 'text-slate-600 hover:text-ink'
+                }`}
+              >
+                🌳 Outline Tree
+              </button>
+              <button
+                type="button"
+                onClick={() => setViewMode('graph')}
+                className={`rounded-lg px-2.5 py-1 text-xs font-semibold transition ${
+                  viewMode === 'graph' ? 'bg-brass text-white shadow-xs' : 'text-slate-600 hover:text-ink'
+                }`}
+              >
+                🕸️ Flowchart Graph
+              </button>
+            </div>
+            {viewMode === 'tree' ? (
+              <>
+                <button
+                  type="button"
+                  onClick={expandAll}
+                  className="rounded-xl border border-rule bg-card px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-2xs hover:bg-slate-50 transition active:scale-95"
+                >
+                  Expand All
+                </button>
+                <button
+                  type="button"
+                  onClick={collapseAll}
+                  className="rounded-xl border border-rule bg-card px-3 py-1.5 text-xs font-semibold text-slate-700 shadow-2xs hover:bg-slate-50 transition active:scale-95"
+                >
+                  Collapse All
+                </button>
+              </>
+            ) : null}
+          </div>
+        }
+      >
+        {/* Goal Hierarchy Stats Bar */}
+        <div className="mb-5 flex flex-wrap items-center gap-2 rounded-2xl border bg-slate-50/60 p-3 text-xs">
+          <span className="font-semibold text-slate-600">Tree Hierarchy:</span>
+          <span className="rounded-full bg-indigo-600 px-2.5 py-0.5 font-semibold text-white">{lifeCount} North Star</span>
+          <span className="text-slate-400">→</span>
+          <span className="rounded-full bg-indigo-100 px-2.5 py-0.5 font-semibold text-indigo-800 border border-indigo-200">{monthlyCount} Monthly</span>
+          <span className="text-slate-400">→</span>
+          <span className="rounded-full bg-emerald-100 px-2.5 py-0.5 font-semibold text-emerald-800 border border-emerald-200">{weeklyCount} Weekly</span>
+          <span className="text-slate-400">→</span>
+          <span className="rounded-full bg-slate-200 px-2.5 py-0.5 font-semibold text-slate-700">{dailyCount} Daily</span>
         </div>
+
+        <GoalAddForm data={data} action={action} showLevelSelect />
+
+        {roots.length === 0 ? <Empty tone="moss">No goals added yet. Add a North Star goal above to build your tree!</Empty> : null}
+
+        {/* Tree or Graph View rendering */}
+        {viewMode === 'graph' ? (
+          <div className="mt-6">
+            <GoalGraphDiagram data={data} action={action} />
+          </div>
+        ) : (
+          <div className="mt-6 space-y-6">
+            {roots.map((goal, idx) => (
+              <GoalTreeItem
+                key={goal.id}
+                data={data}
+                goal={goal}
+                depth={0}
+                isLast={idx === roots.length - 1}
+                expanded={expanded}
+                toggleExpanded={toggleExpanded}
+                action={action}
+              />
+            ))}
+          </div>
+        )}
       </Parchment>
     </div>
   );
@@ -1434,6 +1900,17 @@ function GoalAddForm({
   const prompt = promptByLevel[effectiveLevel] ?? 'What is the next clear goal?';
   const parentContext = parentGoal ? String(parentGoal.title ?? '') : '';
 
+  const parentOptions = useMemo(() => {
+    if (parentGoal) return [];
+    if (effectiveLevel === 'monthly') return data.goals.filter((g) => g.level === 'life');
+    if (effectiveLevel === 'weekly') return data.goals.filter((g) => g.level === 'monthly');
+    if (effectiveLevel === 'daily') return data.goals.filter((g) => g.level === 'weekly');
+    return [];
+  }, [data.goals, effectiveLevel, parentGoal]);
+
+  const [selectedParentId, setSelectedParentId] = useState<string>('');
+  const effectiveParentId = selectedParentId || (parentOptions[0] ? String(parentOptions[0].id) : '');
+
   const clearDetailsForLevel = (nextLevel: string) => {
     setDetailsOpen(nextLevel === 'life');
     setTargetDate(nextLevel === 'monthly' ? monthEndDate(data.today) : '');
@@ -1457,7 +1934,7 @@ function GoalAddForm({
         event.preventDefault();
         if (!title.trim()) return;
         action('goal.add', {
-          parentGoalId: parentGoal?.id,
+          parentGoalId: parentGoal?.id ?? (effectiveParentId || undefined),
           level: effectiveLevel,
           title: title.trim(),
           targetMetric,
@@ -1477,6 +1954,23 @@ function GoalAddForm({
           </p>
         ) : null}
       </div>
+
+      {showLevelSelect && parentOptions.length > 0 && !parentGoal ? (
+        <div className="mb-3 flex items-center gap-2 text-xs text-[var(--muted)]">
+          <span className="font-medium text-ink">Link to Parent Goal:</span>
+          <Select
+            value={effectiveParentId}
+            onChange={(e) => setSelectedParentId(e.target.value)}
+            className="text-xs py-1"
+          >
+            {parentOptions.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.title} ({goalLevelLabel(String(p.level))})
+              </option>
+            ))}
+          </Select>
+        </div>
+      ) : null}
       <div className={`grid gap-2 ${showLevelSelect ? 'md:grid-cols-[1fr_190px_auto]' : 'md:grid-cols-[1fr_auto]'}`}>
         <Field value={title} onChange={(event) => setTitle(event.target.value)} placeholder={effectiveLevel === 'life' ? 'Answer the focusing question...' : 'Answer with the next one thing...'} />
         {showLevelSelect ? (
@@ -1557,7 +2051,7 @@ function GoalSmartFields({
       <div className={level === 'weekly' ? 'grid gap-3' : 'grid gap-3 md:grid-cols-2'}>
         <label className="block">
           <span className="text-xs font-medium text-[var(--muted)]">Target metric</span>
-          <Field className="mt-1.5" value={targetMetric} onChange={(event) => setTargetMetric(event.target.value)} placeholder={level === 'weekly' ? '15 problems' : level === 'monthly' ? '50 problems solved' : '20 LPA'} />
+          <Field className="mt-1.5" value={targetMetric} onChange={(event) => setTargetMetric(event.target.value)} placeholder={level === 'weekly' ? 'e.g. 5 key tasks' : level === 'monthly' ? 'e.g. Complete project milestone' : 'e.g. Primary target metric'} />
         </label>
         {['life', 'monthly'].includes(level) ? (
           <label className="block">
@@ -1646,24 +2140,26 @@ function GoalEditForm({
 function GoalTreeItem({
   data,
   goal,
-  depth,
+  depth = 0,
+  isLast = false,
   expanded,
   toggleExpanded,
   action,
 }: {
   data: Dashboard;
   goal: Row;
-  depth: number;
+  depth?: number;
+  isLast?: boolean;
   expanded: Set<string>;
   toggleExpanded: (id: string) => void;
   action: (type: string, payload?: Row) => Promise<void>;
 }) {
   const [editing, setEditing] = useState(false);
+  const [addingChild, setAddingChild] = useState(false);
   const children = goalChildren(data, goal.id);
-  const isOpen = expanded.has(goal.id);
+  const isOpen = expanded.has(String(goal.id));
   const nextLevel = childGoalLevel(String(goal.level));
   const canComplete = goal.level === 'daily' || goal.level === 'weekly';
-  const classes = goalLevelClasses(String(goal.level));
   const financeProgress = financeGoalProgress(data, goal);
   const progress = goalProgress(data, goal.id);
   const progressPct = financeProgress?.pct ?? (progress.total ? Math.round((progress.complete / progress.total) * 100) : 0);
@@ -1671,91 +2167,176 @@ function GoalTreeItem({
   const definition = goalDefinition(goal);
   const parentWhy = ['monthly', 'weekly'].includes(String(goal.level)) ? northStarWhyLine(data, goal) : null;
 
+  // Level Badge & Card Styling
+  const levelTheme = {
+    life: { label: '🌟 North Star', bg: 'bg-indigo-600 text-white', card: 'border-indigo-300 bg-gradient-to-r from-indigo-50/70 via-card to-purple-50/30 shadow-sm' },
+    monthly: { label: '📅 Monthly', bg: 'bg-[#4338CA] text-white', card: 'border-indigo-200 bg-card' },
+    weekly: { label: '🗓️ Weekly', bg: 'bg-emerald-600 text-white', card: 'border-emerald-200 bg-card' },
+    daily: { label: '🎯 Daily', bg: 'bg-slate-600 text-white', card: 'border-rule bg-card' },
+  }[String(goal.level)] ?? { label: String(goal.level), bg: 'bg-slate-600 text-white', card: 'border-rule bg-card' };
+
   return (
-    <div className={`${depth > 0 ? 'relative pl-4 before:absolute before:left-0 before:top-0 before:h-full before:border-l before:border-rule' : ''}`}>
-      <div className={`rounded-2xl border transition hover:shadow-sm ${classes.card} ${classes.pad}`}>
-        <div className="flex items-start gap-2">
-        <button
-          className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl text-[var(--muted)] transition hover:bg-brass/10 hover:text-brass active:scale-95"
-          onClick={() => toggleExpanded(goal.id)}
-          type="button"
-          aria-label={isOpen ? 'Collapse goal' : 'Expand goal'}
-        >
-          {children.length || nextLevel ? <span className={`transition-transform ${isOpen ? 'rotate-90' : ''}`}>›</span> : <span className="text-rule">•</span>}
-        </button>
-        <div className="min-w-0 flex-1">
-          <div className={`truncate ${classes.title} ${goal.completed ? 'text-[var(--muted)] line-through' : ''}`}>
-            {canComplete && goal.completed ? <span className="mr-2 text-moss">✓</span> : null}
-            {goal.title}
-          </div>
-          <div className={`mt-1 flex flex-wrap gap-2 text-[var(--muted)] ${classes.meta}`}>
-            <span>{goalLevelLabel(String(goal.level))}</span>
-            {goal.targetMetric && ['life', 'monthly', 'weekly'].includes(String(goal.level)) ? <span>Target: {String(goal.targetMetric)}</span> : null}
-            {goal.targetDate && ['life', 'monthly'].includes(String(goal.level)) ? <span>Due: {dateKey(goal.targetDate)}</span> : null}
-          </div>
-          {hasProgress ? (
-            <div className="mt-3 max-w-sm">
-              <div className="mb-1 flex items-center justify-between gap-3 text-xs text-[var(--muted)]">
-                <span>{financeProgress ? `${financeProgress.complete.toFixed(0)}/${financeProgress.total.toFixed(0)} ${financeProgress.label}` : `${progress.complete}/${progress.total} action goals done`}</span>
-                <span className="tabular-nums">{progressPct}%</span>
+    <div className="relative">
+      {/* Curved Branch Connector Line for depth > 0 */}
+      {depth > 0 && (
+        <div className="absolute -left-5 top-5 h-full w-5 pointer-events-none">
+          <div className="absolute left-0 top-0 h-4 w-4 rounded-bl-xl border-b-2 border-l-2 border-slate-300" />
+          {!isLast && <div className="absolute left-0 top-4 bottom-0 w-0.5 bg-slate-300" />}
+        </div>
+      )}
+
+      {/* Goal Node Card */}
+      <div className={`relative rounded-2xl border p-4 transition duration-200 hover:shadow-md ${levelTheme.card}`}>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="flex min-w-0 items-start gap-3">
+            {/* Tree Branch Expand Toggle */}
+            {children.length > 0 || nextLevel ? (
+              <button
+                type="button"
+                onClick={() => toggleExpanded(String(goal.id))}
+                className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-600 transition hover:bg-brass hover:text-white active:scale-95"
+                title={isOpen ? "Collapse branch" : "Expand branch"}
+              >
+                <span className={`text-xs font-bold transition-transform duration-200 ${isOpen ? 'rotate-90' : ''}`}>▶</span>
+              </button>
+            ) : (
+              <span className="mt-2.5 h-2 w-2 shrink-0 rounded-full bg-slate-300" />
+            )}
+
+            <div className="min-w-0 flex-1">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className={`rounded-full px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider ${levelTheme.bg}`}>
+                  {levelTheme.label}
+                </span>
+                {goal.targetDate ? (
+                  <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-500 font-mono">
+                    Due {dateKey(goal.targetDate)}
+                  </span>
+                ) : null}
               </div>
-              <div className="h-1.5 overflow-hidden rounded-full bg-rule">
-                <div className="h-full rounded-full bg-brass transition-all" style={{ width: `${progressPct}%` }} />
-              </div>
+
+              <h3 className={`mt-1.5 text-base font-semibold leading-snug text-ink ${goal.completed ? 'line-through text-slate-400' : ''}`}>
+                {canComplete && goal.completed ? <span className="mr-1 text-moss">✓</span> : null}
+                {goal.title}
+              </h3>
+
+              {goal.targetMetric ? (
+                <div className="mt-1 text-xs text-slate-500">
+                  Target: <strong className="text-slate-700">{String(goal.targetMetric)}</strong>
+                </div>
+              ) : null}
+
+              {hasProgress ? (
+                <div className="mt-2.5 max-w-sm">
+                  <div className="mb-1 flex items-center justify-between text-xs text-slate-500 font-medium">
+                    <span>{financeProgress ? `${financeProgress.complete.toFixed(0)}/${financeProgress.total.toFixed(0)} ${financeProgress.label}` : `${progress.complete}/${progress.total} actions completed`}</span>
+                    <span className="tabular-nums font-semibold">{progressPct}%</span>
+                  </div>
+                  <ProgressBar value={progressPct} max={100} tone={progressPct === 100 ? colors.moss : colors.brass} />
+                </div>
+              ) : null}
             </div>
-          ) : null}
+          </div>
+
+          {/* Node Actions */}
+          <div className="flex items-center gap-2">
+            {nextLevel ? (
+              <button
+                type="button"
+                onClick={() => {
+                  if (!isOpen) toggleExpanded(String(goal.id));
+                  setAddingChild((prev) => !prev);
+                }}
+                className="rounded-xl border border-brass/30 bg-brass/10 px-2.5 py-1 text-xs font-semibold text-brass transition hover:bg-brass hover:text-white active:scale-95"
+              >
+                + {goalLevelLabel(nextLevel)}
+              </button>
+            ) : null}
+
+            {canComplete ? (
+              <button
+                type="button"
+                className={`btn text-xs px-3 py-1 ${goal.completed ? 'check-pop border-moss bg-moss text-white' : ''}`}
+                onClick={() => action('goal.toggle', { id: goal.id })}
+              >
+                {goal.completed ? 'Done ✓' : 'Mark Done'}
+              </button>
+            ) : null}
+
+            <button
+              type="button"
+              className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-brass transition"
+              onClick={() => setEditing((prev) => !prev)}
+              title="Edit goal"
+            >
+              ✎
+            </button>
+            <button
+              type="button"
+              className="rounded-lg p-1.5 text-slate-400 hover:bg-red-50 hover:text-red-600 transition"
+              onClick={() => action('goal.delete', { id: goal.id, label: 'Goal' })}
+              title="Delete goal"
+            >
+              ✕
+            </button>
+          </div>
         </div>
-        {canComplete ? (
-          <button className={`btn ${goal.completed ? 'check-pop border-moss bg-moss text-white' : ''}`} onClick={() => action('goal.toggle', { id: goal.id })}>
-            {goal.completed ? 'Undo' : 'Done'}
-          </button>
+
+        {/* Inline Edit Form */}
+        {editing ? (
+          <GoalEditForm data={data} goal={goal} action={action} onCancel={() => setEditing(false)} />
         ) : null}
-        <button
-          className="rounded px-2 py-1 text-sm text-brass hover:bg-brass hover:text-white"
-          onClick={() => setEditing((value) => !value)}
-        >
-          Edit
-        </button>
-        <button className="rounded px-2 py-1 text-sm text-wax hover:bg-wax hover:text-white" onClick={() => action('goal.delete', { id: goal.id, label: 'Goal' })}>Delete</button>
+
+        {/* Details & Motivation Dropdown */}
+        {isOpen && !editing && (definition || goal.whyThisMatters || parentWhy) ? (
+          <div className="mt-3 space-y-1.5 border-t pt-2.5 text-xs text-[var(--muted)]">
+            {definition && ['life', 'monthly'].includes(String(goal.level)) ? <div><span className="font-semibold text-ink">Done when:</span> {definition}</div> : null}
+            {goal.whyThisMatters && goal.level === 'life' ? <div><span className="font-semibold text-ink">Why it matters:</span> {String(goal.whyThisMatters)}</div> : null}
+            {parentWhy ? <div>{parentWhy}</div> : null}
+          </div>
+        ) : null}
+
+        {/* Inline Add Child Form */}
+        {addingChild && nextLevel ? (
+          <div className="mt-3 border-t pt-3">
+            <GoalAddForm
+              data={data}
+              action={action}
+              parentGoal={goal}
+              level={nextLevel}
+            />
+          </div>
+        ) : null}
       </div>
-      {editing ? <GoalEditForm data={data} goal={goal} action={action} onCancel={() => setEditing(false)} /> : null}
-      {isOpen && !editing && (definition || goal.whyThisMatters || parentWhy) ? (
-        <div className="mt-4 space-y-2 border-t pt-3 text-sm text-[var(--muted)]">
-          {definition && ['life', 'monthly'].includes(String(goal.level)) ? <div><span className="font-medium text-ink">Done:</span> {definition}</div> : null}
-          {goal.whyThisMatters && goal.level === 'life' ? <div><span className="font-medium text-ink">Why:</span> {String(goal.whyThisMatters)}</div> : null}
-          {parentWhy ? <div>{parentWhy}</div> : null}
-        </div>
-      ) : null}
-      </div>
-      {isOpen ? (
-        <div className="mt-2 space-y-2 pl-6">
-          {children.map((child) => (
+
+      {/* Children Tree Nodes with Vertical Stem */}
+      {isOpen && children.length > 0 && (
+        <div className="relative mt-3 ml-5 space-y-3 border-l-2 border-slate-200 pl-5">
+          {children.map((child, idx) => (
             <GoalTreeItem
               key={child.id}
               data={data}
               goal={child}
               depth={depth + 1}
+              isLast={idx === children.length - 1}
               expanded={expanded}
               toggleExpanded={toggleExpanded}
               action={action}
             />
           ))}
-          {nextLevel ? (
-            <GoalAddForm data={data} action={action} parentGoal={goal} level={nextLevel} />
-          ) : null}
         </div>
-      ) : null}
+      )}
     </div>
   );
 }
 
 function Finance({ data, action }: { data: Dashboard; action: (type: string, payload?: Row) => Promise<void> }) {
-  const financeTabs = ['Debts', 'Assets', 'Income', 'Savings', 'Transactions'] as const;
+  const financeTabs = ['Overview', 'Transactions', 'Income', 'Savings', 'Debts', 'Assets'] as const;
   const [activeFinanceTab, setActiveFinanceTab] = useState<(typeof financeTabs)[number]>(() => {
-    if (typeof window === 'undefined') return 'Debts';
+    if (typeof window === 'undefined') return 'Overview';
     const saved = window.sessionStorage.getItem('life-ledger-finance-tab');
     window.sessionStorage.removeItem('life-ledger-finance-tab');
-    return financeTabs.includes(saved as (typeof financeTabs)[number]) ? saved as (typeof financeTabs)[number] : 'Debts';
+    return financeTabs.includes(saved as (typeof financeTabs)[number]) ? saved as (typeof financeTabs)[number] : 'Overview';
   });
   const [income, setIncome] = useState({ name: '', amount: '', frequency: 'monthly' });
   const [asset, setAsset] = useState({ name: '', type: 'mutual-fund', currentValue: '' });
@@ -1813,13 +2394,14 @@ function Finance({ data, action }: { data: Dashboard; action: (type: string, pay
   });
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-6">
       <datalist id="finance-goal-options">
         {goalOptions.map((goal) => <option key={goal.id} value={goal.label} />)}
       </datalist>
       <datalist id="finance-transaction-categories">
         {transactionCategories.map((category) => <option key={category} value={category} />)}
       </datalist>
+
       <Parchment title="Ledger" eyebrow="Summary">
         <div className="grid grid-cols-2 gap-6 md:grid-cols-4">
           <Stat label="Monthly income" value={monthlyIncome.toFixed(2)} tone="text-moss" />
@@ -1831,307 +2413,203 @@ function Finance({ data, action }: { data: Dashboard; action: (type: string, pay
 
       <SubTabs tabs={financeTabs} value={activeFinanceTab} onChange={setActiveFinanceTab} ariaLabel="Finance sections" />
 
-      <div className={activeFinanceTab === 'Income' ? 'space-y-5' : 'hidden'}>
-      <Parchment title="Income" eyebrow="Sources">
-        <form onSubmit={(e) => submit(e, () => action('income.add', income).then(() => setIncome({ name: '', amount: '', frequency: 'monthly' })))} className="mb-4 grid gap-2 md:grid-cols-[1fr_180px_180px_auto]">
-          <Field placeholder="Source name" value={income.name} onChange={(e) => setIncome({ ...income, name: e.target.value })} />
-          <Field placeholder="Amount" type="number" value={income.amount} onChange={(e) => setIncome({ ...income, amount: e.target.value })} />
-          <Select value={income.frequency} onChange={(e) => setIncome({ ...income, frequency: e.target.value })}>
-            <option value="monthly">Recurring monthly</option>
-            <option value="one-time">One-time</option>
-          </Select>
-          <button className="btn btn-primary">Add income</button>
-        </form>
-        {data.incomeSources.length === 0 ? <Empty>No income sources added yet.</Empty> : null}
-        {data.incomeSources.map((item) => (
-          <ListItem
-            key={item.id}
-            title={item.name}
-            note={`${Number(item.amount).toFixed(2)} · ${item.frequency === 'one-time' ? 'one-time' : 'recurring monthly'}`}
-            onEdit={() => {
-              const name = ask('Income source name', item.name);
-              if (!name) return;
-              const amount = ask('Amount', item.amount);
-              if (amount == null) return;
-              const frequency = ask('Frequency: monthly or one-time', item.frequency ?? 'monthly');
-              if (!frequency) return;
-              action('income.update', { id: item.id, name, amount, frequency });
-            }}
-            onDelete={() => action('income.delete', { id: item.id, label: 'Income source' })}
-          />
-        ))}
-      </Parchment>
-      </div>
-
-      <div className={activeFinanceTab === 'Assets' ? 'space-y-5' : 'hidden'}>
-      <div className="grid gap-6 lg:grid-cols-2">
-        <Parchment title="Assets" eyebrow="Manual values">
-          <form onSubmit={(e) => submit(e, () => action('asset.add', asset).then(() => setAsset({ name: '', type: 'mutual-fund', currentValue: '' })))} className="mb-4 grid gap-2 md:grid-cols-[1fr_170px_160px_auto]">
-            <Field placeholder="Asset name" value={asset.name} onChange={(e) => setAsset({ ...asset, name: e.target.value })} />
-            <Select value={asset.type} onChange={(e) => setAsset({ ...asset, type: e.target.value })}>
-              <option value="mutual-fund">Mutual fund</option>
-              <option value="stock">Stock</option>
-              <option value="fd">FD</option>
-              <option value="real-estate">Real estate</option>
-              <option value="other">Other</option>
-            </Select>
-            <Field placeholder="Current value" type="number" value={asset.currentValue} onChange={(e) => setAsset({ ...asset, currentValue: e.target.value })} />
-            <button className="btn btn-primary">Add asset</button>
-          </form>
-          {data.assets.length === 0 ? <Empty>No assets tracked yet.</Empty> : null}
-          {data.assets.map((item) => (
-            <ListItem
-              key={item.id}
-              title={item.name}
-              note={`${item.type} · ${Number(item.currentValue).toFixed(2)}`}
-              onEdit={() => {
-                const name = ask('Asset name', item.name);
-                if (!name) return;
-                const type = ask('Asset type', item.type ?? 'other');
-                if (!type) return;
-                const currentValue = ask('Current value', item.currentValue);
-                if (currentValue == null) return;
-                action('asset.update', { id: item.id, name, type, currentValue });
-              }}
-              onDelete={() => action('asset.delete', { id: item.id, label: 'Asset' })}
+      {/* #1 DEFAULT TAB: FINANCE OVERVIEW DASHBOARD */}
+      <div className={activeFinanceTab === 'Overview' ? 'space-y-6' : 'hidden'}>
+        <div className="grid gap-6 xl:grid-cols-[1.4fr_0.9fr]">
+          <Parchment title="Net Worth Growth" eyebrow="Assets minus liabilities" action={<RangeToggle value={range} onChange={setRange} />}>
+            <SvgCanvasTrendChart
+              data={netWorthData}
+              valueKey="netWorth"
+              unit="$"
+              strokeColor={colors.brass}
+              fillGradientId="overviewNetWorthGrad"
+              height={210}
             />
-          ))}
-        </Parchment>
+          </Parchment>
 
-        <Parchment title="Asset Trend" eyebrow="Snapshot history" action={<RangeToggle value={range} onChange={setRange} />}>
-          <ChartBox height={260}>
-            {assetData.length ? (
-              <ResponsiveContainer>
-                <AreaChart data={assetData} margin={{ bottom: 16, left: 8 }}>
-                  <CartesianGrid stroke={gridStroke} vertical={false} />
-                  <XAxis dataKey="date" tick={{ fontSize: 11, fill: colors.muted }} tickLine={false} axisLine={false}><AxisLabel value="Date" /></XAxis>
-                  <YAxis tick={{ fontSize: 11, fill: colors.muted }} tickLine={false} axisLine={false} width={54}><AxisLabel value="Assets" axis="y" /></YAxis>
-                  <Tooltip content={<ChartTooltip />} />
-                  <Area type="monotone" dataKey="assets" name="Assets" stroke={colors.moss} fill={colors.moss} fillOpacity={0.12} strokeWidth={2} />
-                </AreaChart>
-              </ResponsiveContainer>
-            ) : <ChartPlaceholder>Update an asset value to see the trend.</ChartPlaceholder>}
-          </ChartBox>
-        </Parchment>
-      </div>
-
-      <Parchment title="Net Worth" eyebrow="Assets minus liabilities">
-        <div className="mb-5 grid grid-cols-3 gap-6">
-          <Stat label="Assets" value={totalAssetValue.toFixed(2)} tone="text-moss" />
-          <Stat label="Liabilities" value={totalDebt.toFixed(2)} tone="text-wax" />
-          <Stat label="Net worth" value={netWorth.toFixed(2)} tone={netWorth >= 0 ? 'text-brass' : 'text-wax'} />
+          <Parchment title="Monthly Cash Mix" eyebrow="Income vs expense vs debt">
+            {monthMix.length ? (
+              <ChartBox height={210}>
+                <ResponsiveContainer>
+                  <PieChart>
+                    <Pie data={monthMix} innerRadius={50} outerRadius={78} dataKey="value" paddingAngle={4}>
+                      {monthMix.map((entry) => <Cell key={entry.name} fill={entry.color} />)}
+                    </Pie>
+                    <Tooltip content={<ChartTooltip />} />
+                  </PieChart>
+                </ResponsiveContainer>
+              </ChartBox>
+            ) : <Empty>Add transactions to see this month&apos;s mix.</Empty>}
+            <div className="mt-3 flex flex-wrap justify-around gap-2 text-xs">
+              {monthMix.map((item) => (
+                <span key={item.name} className="flex items-center gap-1.5 font-medium">
+                  <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: item.color }} />
+                  {item.name}: <strong className="tabular-nums">{item.value.toFixed(0)}</strong>
+                </span>
+              ))}
+            </div>
+          </Parchment>
         </div>
-        <ChartBox height={240}>
-          {netWorthData.length ? (
-            <ResponsiveContainer>
-              <LineChart data={netWorthData} margin={{ bottom: 16, left: 8 }}>
-                <CartesianGrid stroke={gridStroke} vertical={false} />
-                <XAxis dataKey="date" tick={{ fontSize: 11, fill: colors.muted }} tickLine={false} axisLine={false}><AxisLabel value="Date" /></XAxis>
-                <YAxis tick={{ fontSize: 11, fill: colors.muted }} tickLine={false} axisLine={false} width={58}><AxisLabel value="Net worth" axis="y" /></YAxis>
-                <Tooltip content={<ChartTooltip />} />
-                <Line type="monotone" dataKey="netWorth" name="Net worth" stroke={colors.brass} strokeWidth={2} dot={{ r: 2, fill: colors.brass }} />
-              </LineChart>
-            </ResponsiveContainer>
-          ) : <ChartPlaceholder>Add assets or loans to see net worth history.</ChartPlaceholder>}
-        </ChartBox>
-      </Parchment>
 
-      </div>
+        <div className="grid gap-6 xl:grid-cols-[1.1fr_1.3fr]">
+          <Parchment title="Expenses by Category" eyebrow="This month breakdown">
+            {expenseBreakdown.length === 0 ? <Empty tone="moss">No expense transactions logged this month.</Empty> : null}
+            <div className="space-y-3">
+              {expenseBreakdown.map((item) => (
+                <div key={item.name} className="space-y-1">
+                  <div className="flex items-center justify-between text-xs font-medium">
+                    <span className="flex items-center gap-2 text-ink">
+                      <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: item.color }} />
+                      {item.name}
+                    </span>
+                    <span className="tabular-nums font-semibold">${item.value.toFixed(2)}</span>
+                  </div>
+                  <ProgressBar value={item.value} max={currentMonthTotals.expenses || 1} tone={item.color} />
+                </div>
+              ))}
+            </div>
+          </Parchment>
 
-      <div className={activeFinanceTab === 'Debts' ? 'space-y-5' : 'hidden'}>
-      <div className="grid gap-6 lg:grid-cols-[1.4fr_0.9fr]">
-        <Parchment title="Debt Payoff" eyebrow={`Projected payoff: ${projectedPayoff(data)}`} action={<RangeToggle value={range} onChange={setRange} />}>
-          <ChartBox>
-            {debtData.length ? (
-              <ResponsiveContainer>
-                <AreaChart data={debtData} margin={{ bottom: 16, left: 8 }}>
-                  <defs>
-                    <linearGradient id="debtFill" x1="0" x2="0" y1="0" y2="1">
-                      <stop offset="0%" stopColor={colors.wax} stopOpacity={0.22} />
-                      <stop offset="100%" stopColor={colors.wax} stopOpacity={0.02} />
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid stroke={gridStroke} vertical={false} />
-                  <XAxis dataKey="date" tick={{ fontSize: 11, fill: colors.muted }} tickLine={false} axisLine={false}>
-                    <AxisLabel value="Date" />
-                  </XAxis>
-                  <YAxis tick={{ fontSize: 11, fill: colors.muted }} tickLine={false} axisLine={false} width={50}>
-                    <AxisLabel value="Debt" axis="y" />
-                  </YAxis>
-                  <Tooltip content={<ChartTooltip />} />
-                  <Area type="monotone" dataKey="debt" name="Debt" stroke={colors.wax} strokeWidth={2} fill="url(#debtFill)" animationDuration={500} />
-                </AreaChart>
-              </ResponsiveContainer>
-            ) : <ChartPlaceholder>Add a debt or payment to see payoff trends.</ChartPlaceholder>}
-          </ChartBox>
-        </Parchment>
-
-        <Parchment title="This Month" eyebrow="Income, expenses, debt">
-          {monthMix.length ? (
-            <ChartBox height={220}>
-              <ResponsiveContainer>
-                <PieChart>
-                  <Pie data={monthMix} innerRadius={54} outerRadius={82} dataKey="value" paddingAngle={3}>
-                    {monthMix.map((entry) => <Cell key={entry.name} fill={entry.color} />)}
-                  </Pie>
-                  <Tooltip content={<ChartTooltip />} />
-                </PieChart>
-              </ResponsiveContainer>
-            </ChartBox>
-          ) : <Empty>Add this month&apos;s transactions to see the mix.</Empty>}
-          <div className="mt-3 space-y-2 text-sm">
-            {monthMix.map((item) => (
-              <div key={item.name} className="flex items-center justify-between">
-                <span className="flex items-center gap-2"><span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: item.color }} />{item.name}</span>
-                <span className="tabular-nums">{item.value.toFixed(0)}</span>
-              </div>
-            ))}
-          </div>
-        </Parchment>
-      </div>
-
-      <Parchment title="Debts" eyebrow="Loans & obligations">
-        <form
-          onSubmit={(e) => submit(e, () => action('debt.add', { ...debt, linkedGoalId: goalIdFromLabel(debtGoalQuery) || null }).then(() => {
-            setDebt({ name: '', amount: '', loanType: 'personal', interestRate: '', tenureMonths: '', emiAmount: '', dueDay: '1', linkedGoalId: '' });
-            setDebtGoalQuery('');
-          }))}
-          className="mb-4 grid gap-2 md:grid-cols-4"
-        >
-          <Field placeholder="Name" value={debt.name} onChange={(e) => setDebt({ ...debt, name: e.target.value })} />
-          <Field placeholder="Amount" type="number" value={debt.amount} onChange={(e) => setDebt({ ...debt, amount: e.target.value })} />
-          <Select value={debt.loanType} onChange={(e) => setDebt({ ...debt, loanType: e.target.value })}>
-            <option value="personal">Personal</option>
-            <option value="home">Home</option>
-            <option value="car">Car</option>
-            <option value="credit-card">Credit card</option>
-            <option value="other">Other</option>
-          </Select>
-          <Field placeholder="Rate %" type="number" value={debt.interestRate} onChange={(e) => setDebt({ ...debt, interestRate: e.target.value })} />
-          <Field placeholder="Tenure months" type="number" value={debt.tenureMonths} onChange={(e) => setDebt({ ...debt, tenureMonths: e.target.value })} />
-          <Field placeholder="EMI amount" type="number" value={debt.emiAmount} onChange={(e) => setDebt({ ...debt, emiAmount: e.target.value })} />
-          <Field placeholder="Due day" type="number" min={1} max={28} value={debt.dueDay} onChange={(e) => setDebt({ ...debt, dueDay: e.target.value })} />
-          <Field list="finance-goal-options" placeholder="Link to a goal (optional)" value={debtGoalQuery} onChange={(e) => setDebtGoalQuery(e.target.value)} />
-          <button className="btn btn-primary">Add debt</button>
-        </form>
-        {data.debts.map((item) => (
-          <LoanItem key={item.id} item={item} summary={data.loanSummaries.find((row) => row.debtId === item.id)} data={data} goalLabelFromId={goalLabelFromId} goalIdFromLabel={goalIdFromLabel} action={action} />
-        ))}
-        {data.debts.length === 0 ? <Empty>No loans or obligations recorded yet.</Empty> : null}
-        <form onSubmit={(e) => submit(e, () => action('debt.pay', payment).then(() => setPayment({ ...payment, amount: '' })))} className="mt-5 grid gap-2 border-t pt-4 md:grid-cols-[1fr_180px_auto]">
-          <Select value={payment.debtId} onChange={(e) => setPayment({ ...payment, debtId: e.target.value })}>
-            <option value="">Select debt</option>
-            {data.debts.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
-          </Select>
-          <Field placeholder="Amount" type="number" value={payment.amount} onChange={(e) => setPayment({ ...payment, amount: e.target.value })} />
-          <button className="btn btn-primary">Log payment</button>
-        </form>
-        {data.debtPayments.length ? (
-          <div className="mt-5 border-t pt-4">
-            <div className="label-caps mb-2">Recent payments</div>
-            {[...data.debtPayments].reverse().slice(0, 5).map((item) => (
+          <Parchment
+            title="Recent Transactions"
+            eyebrow="Financial log"
+            action={
+              <button
+                type="button"
+                onClick={() => setActiveFinanceTab('Transactions')}
+                className="text-xs font-semibold text-brass hover:underline"
+              >
+                View all →
+              </button>
+            }
+          >
+            {data.transactions.length === 0 ? <Empty tone="moss">No financial transactions logged yet.</Empty> : null}
+            {[...data.transactions].reverse().slice(0, 6).map((item) => (
               <ListItem
                 key={item.id}
-                title={`${item.paidOn} · ${Number(item.amount).toFixed(2)} ${item.kind === 'emi' ? 'EMI' : 'extra'}`}
-                note={`${data.debts.find((debtRow) => debtRow.id === item.debtId)?.name ?? 'Debt payment'} · principal ${Number(item.principalPortion ?? item.amount).toFixed(2)} · interest ${Number(item.interestPortion ?? 0).toFixed(2)} · balance ${item.resultingBalance == null ? '-' : Number(item.resultingBalance).toFixed(2)}`}
-                onDelete={() => action('debtPayment.delete', { id: item.id, label: 'Debt payment' })}
+                title={`${dateKey(item.transactionDate)} · ${item.category ?? 'Other'}`}
+                note={item.note || (item.type === 'income' ? 'Income' : item.type === 'debt_payment' ? 'Debt payment' : 'Expense')}
+                right={
+                  <span className={`font-semibold tabular-nums ${item.type === 'income' ? 'text-moss' : item.type === 'debt_payment' ? 'text-brass' : 'text-wax'}`}>
+                    {item.type === 'income' ? '+' : '-'}${Number(item.amount ?? 0).toFixed(2)}
+                  </span>
+                }
               />
             ))}
-          </div>
-        ) : <div className="mt-5"><Empty>No debt payments logged yet.</Empty></div>}
-      </Parchment>
+          </Parchment>
+        </div>
       </div>
 
-      <div className={activeFinanceTab === 'Savings' ? 'space-y-5' : 'hidden'}>
-        <Parchment title="Savings" eyebrow="Balance">
-          <form
-            onSubmit={(event) => {
-              event.preventDefault();
-              action('savings.save', {
-                balance: savings || data.savings?.balance || 0,
-                goalAmount: savingsGoal,
-                linkedGoalId: goalIdFromLabel(savingsGoalQuery) || data.savings?.linkedGoalId || null,
-              }).then(() => setSavings(''));
-            }}
-            className="mb-5 grid gap-2 md:grid-cols-2 lg:grid-cols-1"
-          >
-            <Field type="number" value={savings} onChange={(event) => setSavings(event.target.value)} placeholder={`Current: ${data.savings?.balance ?? 0}`} />
-            <Field type="number" value={savingsGoal} onChange={(event) => setSavingsGoal(event.target.value)} placeholder="Savings goal" />
-            <Field list="finance-goal-options" value={savingsGoalQuery} onChange={(event) => setSavingsGoalQuery(event.target.value)} placeholder={data.savings?.linkedGoalId ? `Linked: ${goalTitle(data, String(data.savings.linkedGoalId))}` : 'Link to a goal (optional)'} />
-            <button className="btn btn-primary">Save savings</button>
-          </form>
-          {data.savings?.linkedGoalId ? (
-            <span className="mb-4 inline-flex items-center gap-1 rounded-full border border-brass/25 bg-brass/10 px-2 py-0.5 text-xs font-medium text-brass">
-              <NavIcon name="target" className="h-3 w-3" /> {goalTitle(data, String(data.savings.linkedGoalId)) ?? 'Linked goal'}
-            </span>
-          ) : null}
-          <ProgressBar value={Number(data.savings?.balance ?? 0)} max={Number(savingsGoal) || 1} tone={colors.moss} />
-        </Parchment>
-      </div>
-
-      <div className={activeFinanceTab === 'Transactions' ? 'space-y-5' : 'hidden'}>
-        <div className="grid gap-6 xl:grid-cols-[1.35fr_0.8fr]">
-        <Parchment title="Transactions" eyebrow="Daily finance log">
-          <form
-            onSubmit={(event) => submit(event, () => {
-              const category = transaction.category.trim() || (transaction.type === 'debt_payment' ? 'Debt' : transaction.type === 'income' ? 'Income' : 'Other');
-              action('transaction.add', { ...transaction, category }).then(() => setTransaction({
-                date: data.today,
-                type: 'expense',
-                amount: '',
-                category: 'Food',
-                note: '',
-                linkedDebtId: '',
-              }));
-            })}
-            className="mb-5 grid gap-2 md:grid-cols-3 xl:grid-cols-6"
-          >
-            <Field type="date" value={transaction.date} onChange={(event) => setTransaction({ ...transaction, date: event.target.value })} />
-            <Select
-              value={transaction.type}
-              onChange={(event) => {
-                const type = event.target.value;
-                setTransaction({
-                  ...transaction,
-                  type,
-                  category: type === 'debt_payment' ? 'Debt' : type === 'income' ? 'Income' : transaction.category || 'Food',
-                  linkedDebtId: type === 'debt_payment' ? transaction.linkedDebtId : '',
-                });
-              }}
+      {/* #2 TAB: TRANSACTIONS (ADD & FILTER FORM) */}
+      <div className={activeFinanceTab === 'Transactions' ? 'space-y-6' : 'hidden'}>
+        <div className="grid gap-6 xl:grid-cols-[1.3fr_0.9fr]">
+          <Parchment title="Add Transaction" eyebrow="Record income, expense, or debt payment">
+            <form
+              onSubmit={(event) => submit(event, () => {
+                const category = transaction.category.trim() || (transaction.type === 'debt_payment' ? 'Debt' : transaction.type === 'income' ? 'Income' : 'Other');
+                action('transaction.add', { ...transaction, category }).then(() => setTransaction({
+                  date: data.today,
+                  type: 'expense',
+                  amount: '',
+                  category: 'Food',
+                  note: '',
+                  linkedDebtId: '',
+                }));
+              })}
+              className="space-y-4"
             >
-              <option value="income">Income</option>
-              <option value="expense">Expense</option>
-              <option value="debt_payment">Debt Payment</option>
-            </Select>
-            <Field placeholder="Amount" type="number" value={transaction.amount} onChange={(event) => setTransaction({ ...transaction, amount: event.target.value })} />
-            <Select
-              value={transactionCategoryValue}
-              onChange={(event) => setTransaction({ ...transaction, category: event.target.value === '__custom' ? '' : event.target.value })}
-            >
-              {transactionCategories.map((category) => <option key={category} value={category}>{category}</option>)}
-              <option value="__custom">Custom category</option>
-            </Select>
-            {transactionCategoryValue === '__custom' ? (
-              <Field placeholder="Custom category" value={transaction.category} onChange={(event) => setTransaction({ ...transaction, category: event.target.value })} />
-            ) : null}
-            {transaction.type === 'debt_payment' ? (
-              <Select value={transaction.linkedDebtId} onChange={(event) => setTransaction({ ...transaction, linkedDebtId: event.target.value })}>
-                <option value="">Select debt</option>
-                {data.debts.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
-              </Select>
-            ) : null}
-            <Field
-              className={transaction.type !== 'debt_payment' ? 'md:col-span-2 xl:col-span-1' : ''}
-              placeholder="Note (optional)"
-              value={transaction.note}
-              onChange={(event) => setTransaction({ ...transaction, note: event.target.value })}
-            />
-            <button className="btn btn-primary">Save</button>
-          </form>
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                <div>
+                  <label className="mb-1.5 block text-xs font-medium text-[var(--muted)]">Date</label>
+                  <Field type="date" value={transaction.date} onChange={(event) => setTransaction({ ...transaction, date: event.target.value })} />
+                </div>
+                <div>
+                  <label className="mb-1.5 block text-xs font-medium text-[var(--muted)]">Type</label>
+                  <Select
+                    value={transaction.type}
+                    onChange={(event) => {
+                      const type = event.target.value;
+                      setTransaction({
+                        ...transaction,
+                        type,
+                        category: type === 'debt_payment' ? 'Debt' : type === 'income' ? 'Income' : transaction.category || 'Food',
+                        linkedDebtId: type === 'debt_payment' ? transaction.linkedDebtId : '',
+                      });
+                    }}
+                  >
+                    <option value="expense">Expense</option>
+                    <option value="income">Income</option>
+                    <option value="debt_payment">Debt Payment</option>
+                  </Select>
+                </div>
+                <div>
+                  <label className="mb-1.5 block text-xs font-medium text-[var(--muted)]">Amount</label>
+                  <Field placeholder="0.00" type="number" step="0.01" value={transaction.amount} onChange={(event) => setTransaction({ ...transaction, amount: event.target.value })} />
+                </div>
+                <div>
+                  <label className="mb-1.5 block text-xs font-medium text-[var(--muted)]">Category</label>
+                  <Select
+                    value={transactionCategoryValue}
+                    onChange={(event) => setTransaction({ ...transaction, category: event.target.value === '__custom' ? '' : event.target.value })}
+                  >
+                    {transactionCategories.map((category) => <option key={category} value={category}>{category}</option>)}
+                    <option value="__custom">Custom category</option>
+                  </Select>
+                </div>
+              </div>
 
-          <div className="mb-4 grid gap-2 md:grid-cols-5">
+              {transactionCategoryValue === '__custom' ? (
+                <div>
+                  <label className="mb-1.5 block text-xs font-medium text-[var(--muted)]">Custom Category Name</label>
+                  <Field placeholder="e.g. Subscriptions, Gifts..." value={transaction.category} onChange={(event) => setTransaction({ ...transaction, category: event.target.value })} />
+                </div>
+              ) : null}
+
+              {transaction.type === 'debt_payment' ? (
+                <div>
+                  <label className="mb-1.5 block text-xs font-medium text-[var(--muted)]">Linked Loan / Debt</label>
+                  <Select value={transaction.linkedDebtId} onChange={(event) => setTransaction({ ...transaction, linkedDebtId: event.target.value })}>
+                    <option value="">Select debt obligation</option>
+                    {data.debts.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+                  </Select>
+                </div>
+              ) : null}
+
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
+                <div className="flex-1">
+                  <label className="mb-1.5 block text-xs font-medium text-[var(--muted)]">Note (optional)</label>
+                  <Field placeholder="Where or what did you spend on?" value={transaction.note} onChange={(event) => setTransaction({ ...transaction, note: event.target.value })} />
+                </div>
+                <button className="btn btn-primary shrink-0 px-6 py-2.5">
+                  + Save Transaction
+                </button>
+              </div>
+            </form>
+          </Parchment>
+
+          <Parchment title="Expenses by Category" eyebrow="This month breakdown">
+            {expenseBreakdown.length === 0 ? <Empty tone="moss">Log an expense to see category spending.</Empty> : null}
+            <div className="space-y-3">
+              {expenseBreakdown.map((item) => (
+                <div key={item.name} className="space-y-1">
+                  <div className="flex items-center justify-between text-xs font-medium">
+                    <span className="flex items-center gap-2 text-ink">
+                      <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: item.color }} />
+                      {item.name}
+                    </span>
+                    <span className="tabular-nums font-semibold">${item.value.toFixed(2)}</span>
+                  </div>
+                  <ProgressBar value={item.value} max={currentMonthTotals.expenses || 1} tone={item.color} />
+                </div>
+              ))}
+            </div>
+          </Parchment>
+        </div>
+
+        <Parchment title="Transaction History" eyebrow="Filter & search ledger entries">
+          <div className="mb-5 grid gap-3 sm:grid-cols-2 md:grid-cols-5">
             <Select value={transactionFilter.type} onChange={(event) => setTransactionFilter({ ...transactionFilter, type: event.target.value })}>
-              <option value="">All types</option>
+              <option value="">All Types</option>
               <option value="income">Income</option>
               <option value="expense">Expense</option>
               <option value="debt_payment">Debt Payment</option>
@@ -2139,7 +2617,7 @@ function Finance({ data, action }: { data: Dashboard; action: (type: string, pay
             <Field list="finance-transaction-categories" placeholder="Category" value={transactionFilter.category} onChange={(event) => setTransactionFilter({ ...transactionFilter, category: event.target.value })} />
             <Field type="date" value={transactionFilter.startDate} onChange={(event) => setTransactionFilter({ ...transactionFilter, startDate: event.target.value })} />
             <Field type="date" value={transactionFilter.endDate} onChange={(event) => setTransactionFilter({ ...transactionFilter, endDate: event.target.value })} />
-            <Field placeholder="Search notes" value={transactionFilter.query} onChange={(event) => setTransactionFilter({ ...transactionFilter, query: event.target.value })} />
+            <Field placeholder="Search notes..." value={transactionFilter.query} onChange={(event) => setTransactionFilter({ ...transactionFilter, query: event.target.value })} />
           </div>
 
           {filteredTransactions.length === 0 ? <Empty tone="moss">No transactions match this view.</Empty> : null}
@@ -2149,8 +2627,8 @@ function Finance({ data, action }: { data: Dashboard; action: (type: string, pay
               title={`${dateKey(item.transactionDate)} · ${transactionTypeLabel(item.type)} · ${item.category ?? 'Other'}`}
               note={`${item.note ? `${item.note} · ` : ''}${item.linkedDebt?.name ? `Debt: ${item.linkedDebt.name}` : ''}`}
               right={
-                <span className={`font-semibold tabular-nums ${item.type === 'income' ? 'text-moss' : item.type === 'debt_payment' ? 'text-brass' : 'text-wax'}`}>
-                  {item.type === 'income' ? '+' : '-'}{Number(item.amount ?? 0).toFixed(2)}
+                <span className={`font-semibold tabular-nums text-sm ${item.type === 'income' ? 'text-moss' : item.type === 'debt_payment' ? 'text-brass' : 'text-wax'}`}>
+                  {item.type === 'income' ? '+' : '-'}${Number(item.amount ?? 0).toFixed(2)}
                 </span>
               }
               onEdit={() => {
@@ -2177,39 +2655,242 @@ function Finance({ data, action }: { data: Dashboard; action: (type: string, pay
             />
           ))}
         </Parchment>
-        <Parchment title="Expenses by Category" eyebrow="This month">
-          <ChartBox height={240}>
-            {expenseBreakdown.length ? (
-              <ResponsiveContainer>
-                <BarChart data={expenseBreakdown} margin={{ bottom: 16, left: 8 }}>
-                  <CartesianGrid stroke={gridStroke} vertical={false} />
-                  <XAxis dataKey="name" tick={{ fontSize: 11, fill: colors.muted }} tickLine={false} axisLine={false}>
-                    <AxisLabel value="Category" />
-                  </XAxis>
-                  <YAxis tick={{ fontSize: 11, fill: colors.muted }} tickLine={false} axisLine={false} width={54}>
-                    <AxisLabel value="Amount" axis="y" />
-                  </YAxis>
-                  <Tooltip content={<ChartTooltip />} />
-                  <Bar dataKey="value" name="Expense" radius={[8, 8, 0, 0]}>
-                    {expenseBreakdown.map((entry) => <Cell key={entry.name} fill={entry.color} />)}
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
-            ) : <ChartPlaceholder>Log an expense to see category spending.</ChartPlaceholder>}
-          </ChartBox>
-          <div className="mt-4 space-y-2 text-sm">
-            {expenseBreakdown.map((item) => (
-              <div key={item.name} className="flex items-center justify-between gap-3">
-                <span className="flex min-w-0 items-center gap-2 truncate">
-                  <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: item.color }} />
-                  <span className="truncate">{item.name}</span>
-                </span>
-                <span className="font-medium tabular-nums">{item.value.toFixed(2)}</span>
-              </div>
-            ))}
-          </div>
+      </div>
+
+      {/* #3 TAB: INCOME */}
+      <div className={activeFinanceTab === 'Income' ? 'space-y-5' : 'hidden'}>
+        <Parchment title="Income" eyebrow="Sources">
+          <form onSubmit={(e) => submit(e, () => action('income.add', income).then(() => setIncome({ name: '', amount: '', frequency: 'monthly' })))} className="mb-4 grid gap-2 md:grid-cols-[1fr_180px_180px_auto]">
+            <Field placeholder="Source name" value={income.name} onChange={(e) => setIncome({ ...income, name: e.target.value })} />
+            <Field placeholder="Amount" type="number" value={income.amount} onChange={(e) => setIncome({ ...income, amount: e.target.value })} />
+            <Select value={income.frequency} onChange={(e) => setIncome({ ...income, frequency: e.target.value })}>
+              <option value="monthly">Recurring monthly</option>
+              <option value="one-time">One-time</option>
+            </Select>
+            <button className="btn btn-primary">Add income</button>
+          </form>
+          {data.incomeSources.length === 0 ? <Empty>No income sources added yet.</Empty> : null}
+          {data.incomeSources.map((item) => (
+            <ListItem
+              key={item.id}
+              title={item.name}
+              note={`${Number(item.amount).toFixed(2)} · ${item.frequency === 'one-time' ? 'one-time' : 'recurring monthly'}`}
+              onEdit={() => {
+                const name = ask('Income source name', item.name);
+                if (!name) return;
+                const amount = ask('Amount', item.amount);
+                if (amount == null) return;
+                const frequency = ask('Frequency: monthly or one-time', item.frequency ?? 'monthly');
+                if (!frequency) return;
+                action('income.update', { id: item.id, name, amount, frequency });
+              }}
+              onDelete={() => action('income.delete', { id: item.id, label: 'Income source' })}
+            />
+          ))}
         </Parchment>
+      </div>
+
+      {/* #4 TAB: SAVINGS */}
+      <div className={activeFinanceTab === 'Savings' ? 'space-y-5' : 'hidden'}>
+        <Parchment title="Savings" eyebrow="Balance">
+          <form
+            onSubmit={(event) => {
+              event.preventDefault();
+              action('savings.save', {
+                balance: savings !== '' ? savings : (data.savings?.balance ?? 0),
+                goalAmount: savingsGoal,
+                linkedGoalId: savingsGoalQuery ? (goalIdFromLabel(savingsGoalQuery) || null) : (data.savings?.linkedGoalId || null),
+              }).then(() => setSavings(''));
+            }}
+            className="mb-5 grid gap-2 md:grid-cols-2 lg:grid-cols-1"
+          >
+            <Field type="number" value={savings} onChange={(event) => setSavings(event.target.value)} placeholder={`Current: ${data.savings?.balance ?? 0}`} />
+            <Field type="number" value={savingsGoal} onChange={(event) => setSavingsGoal(event.target.value)} placeholder="Savings goal" />
+            <Field list="finance-goal-options" value={savingsGoalQuery} onChange={(event) => setSavingsGoalQuery(event.target.value)} placeholder={data.savings?.linkedGoalId ? `Linked: ${goalTitle(data, String(data.savings.linkedGoalId))}` : 'Link to a goal (optional)'} />
+            <button className="btn btn-primary">Save savings</button>
+          </form>
+          {data.savings?.linkedGoalId ? (
+            <span className="mb-4 inline-flex items-center gap-1 rounded-full border border-brass/25 bg-brass/10 px-2 py-0.5 text-xs font-medium text-brass">
+              <NavIcon name="target" className="h-3 w-3" /> {goalTitle(data, String(data.savings.linkedGoalId)) ?? 'Linked goal'}
+            </span>
+          ) : null}
+          <ProgressBar value={Number(data.savings?.balance ?? 0)} max={Number(savingsGoal) || 1} tone={colors.moss} />
+        </Parchment>
+      </div>
+
+      {/* #5 TAB: DEBTS */}
+      <div className={activeFinanceTab === 'Debts' ? 'space-y-5' : 'hidden'}>
+        <div className="grid gap-6 lg:grid-cols-[1.4fr_0.9fr]">
+          <Parchment title="Debt Payoff" eyebrow={`Projected payoff: ${projectedPayoff(data)}`} action={<RangeToggle value={range} onChange={setRange} />}>
+            <ChartBox>
+              {debtData.length ? (
+                <ResponsiveContainer>
+                  <AreaChart data={debtData} margin={{ bottom: 16, left: 8 }}>
+                    <defs>
+                      <linearGradient id="debtFill" x1="0" x2="0" y1="0" y2="1">
+                        <stop offset="0%" stopColor={colors.wax} stopOpacity={0.22} />
+                        <stop offset="100%" stopColor={colors.wax} stopOpacity={0.02} />
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid stroke={gridStroke} vertical={false} />
+                    <XAxis dataKey="date" tick={{ fontSize: 11, fill: colors.muted }} tickLine={false} axisLine={false}>
+                      <AxisLabel value="Date" />
+                    </XAxis>
+                    <YAxis tick={{ fontSize: 11, fill: colors.muted }} tickLine={false} axisLine={false} width={50}>
+                      <AxisLabel value="Debt" axis="y" />
+                    </YAxis>
+                    <Tooltip content={<ChartTooltip />} />
+                    <Area type="monotone" dataKey="debt" name="Debt" stroke={colors.wax} strokeWidth={2} fill="url(#debtFill)" animationDuration={500} />
+                  </AreaChart>
+                </ResponsiveContainer>
+              ) : <ChartPlaceholder>Add a debt or payment to see payoff trends.</ChartPlaceholder>}
+            </ChartBox>
+          </Parchment>
+
+          <Parchment title="This Month" eyebrow="Income, expenses, debt">
+            {monthMix.length ? (
+              <ChartBox height={220}>
+                <ResponsiveContainer>
+                  <PieChart>
+                    <Pie data={monthMix} innerRadius={54} outerRadius={82} dataKey="value" paddingAngle={3}>
+                      {monthMix.map((entry) => <Cell key={entry.name} fill={entry.color} />)}
+                    </Pie>
+                    <Tooltip content={<ChartTooltip />} />
+                  </PieChart>
+                </ResponsiveContainer>
+              </ChartBox>
+            ) : <Empty>Add this month&apos;s transactions to see the mix.</Empty>}
+            <div className="mt-3 space-y-2 text-sm">
+              {monthMix.map((item) => (
+                <div key={item.name} className="flex items-center justify-between">
+                  <span className="flex items-center gap-2"><span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: item.color }} />{item.name}</span>
+                  <span className="tabular-nums">{item.value.toFixed(0)}</span>
+                </div>
+              ))}
+            </div>
+          </Parchment>
         </div>
+
+        <Parchment title="Debts" eyebrow="Loans & obligations">
+          <form
+            onSubmit={(e) => submit(e, () => action('debt.add', { ...debt, linkedGoalId: goalIdFromLabel(debtGoalQuery) || null }).then(() => {
+              setDebt({ name: '', amount: '', loanType: 'personal', interestRate: '', tenureMonths: '', emiAmount: '', dueDay: '1', linkedGoalId: '' });
+              setDebtGoalQuery('');
+            }))}
+            className="mb-4 grid gap-2 md:grid-cols-4"
+          >
+            <Field placeholder="Name" value={debt.name} onChange={(e) => setDebt({ ...debt, name: e.target.value })} />
+            <Field placeholder="Amount" type="number" value={debt.amount} onChange={(e) => setDebt({ ...debt, amount: e.target.value })} />
+            <Select value={debt.loanType} onChange={(e) => setDebt({ ...debt, loanType: e.target.value })}>
+              <option value="personal">Personal</option>
+              <option value="home">Home</option>
+              <option value="car">Car</option>
+              <option value="credit-card">Credit card</option>
+              <option value="other">Other</option>
+            </Select>
+            <Field placeholder="Rate %" type="number" value={debt.interestRate} onChange={(e) => setDebt({ ...debt, interestRate: e.target.value })} />
+            <Field placeholder="Tenure months" type="number" value={debt.tenureMonths} onChange={(e) => setDebt({ ...debt, tenureMonths: e.target.value })} />
+            <Field placeholder="EMI amount" type="number" value={debt.emiAmount} onChange={(e) => setDebt({ ...debt, emiAmount: e.target.value })} />
+            <Field placeholder="Due day" type="number" min={1} max={28} value={debt.dueDay} onChange={(e) => setDebt({ ...debt, dueDay: e.target.value })} />
+            <Field list="finance-goal-options" placeholder="Link to a goal (optional)" value={debtGoalQuery} onChange={(e) => setDebtGoalQuery(e.target.value)} />
+            <button className="btn btn-primary">Add debt</button>
+          </form>
+          {data.debts.map((item) => (
+            <LoanItem key={item.id} item={item} summary={data.loanSummaries.find((row) => row.debtId === item.id)} data={data} goalLabelFromId={goalLabelFromId} goalIdFromLabel={goalIdFromLabel} action={action} />
+          ))}
+          {data.debts.length === 0 ? <Empty>No loans or obligations recorded yet.</Empty> : null}
+          <form onSubmit={(e) => submit(e, () => action('debt.pay', payment).then(() => setPayment({ ...payment, amount: '' })))} className="mt-5 grid gap-2 border-t pt-4 md:grid-cols-[1fr_180px_auto]">
+            <Select value={payment.debtId} onChange={(e) => setPayment({ ...payment, debtId: e.target.value })}>
+              <option value="">Select debt</option>
+              {data.debts.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+            </Select>
+            <Field placeholder="Amount" type="number" value={payment.amount} onChange={(e) => setPayment({ ...payment, amount: e.target.value })} />
+            <button className="btn btn-primary">Log payment</button>
+          </form>
+          {data.debtPayments.length ? (
+            <div className="mt-5 border-t pt-4">
+              <div className="label-caps mb-2">Recent payments</div>
+              {[...data.debtPayments].reverse().slice(0, 5).map((item) => (
+                <ListItem
+                  key={item.id}
+                  title={`${item.paidOn} · ${Number(item.amount).toFixed(2)} ${item.kind === 'emi' ? 'EMI' : 'extra'}`}
+                  note={`${data.debts.find((debtRow) => debtRow.id === item.debtId)?.name ?? 'Debt payment'} · principal ${Number(item.principalPortion ?? item.amount).toFixed(2)} · interest ${Number(item.interestPortion ?? 0).toFixed(2)} · balance ${item.resultingBalance == null ? '-' : Number(item.resultingBalance).toFixed(2)}`}
+                  onDelete={() => action('debtPayment.delete', { id: item.id, label: 'Debt payment' })}
+                />
+              ))}
+            </div>
+          ) : <div className="mt-5"><Empty>No debt payments logged yet.</Empty></div>}
+        </Parchment>
+      </div>
+
+      {/* #6 TAB: ASSETS */}
+      <div className={activeFinanceTab === 'Assets' ? 'space-y-5' : 'hidden'}>
+        <div className="grid gap-6 lg:grid-cols-2">
+          <Parchment title="Assets" eyebrow="Manual values">
+            <form onSubmit={(e) => submit(e, () => action('asset.add', asset).then(() => setAsset({ name: '', type: 'mutual-fund', currentValue: '' })))} className="mb-4 grid gap-2 md:grid-cols-[1fr_170px_160px_auto]">
+              <Field placeholder="Asset name" value={asset.name} onChange={(e) => setAsset({ ...asset, name: e.target.value })} />
+              <Select value={asset.type} onChange={(e) => setAsset({ ...asset, type: e.target.value })}>
+                <option value="mutual-fund">Mutual fund</option>
+                <option value="stock">Stock</option>
+                <option value="fd">FD</option>
+                <option value="real-estate">Real estate</option>
+                <option value="other">Other</option>
+              </Select>
+              <Field placeholder="Current value" type="number" value={asset.currentValue} onChange={(e) => setAsset({ ...asset, currentValue: e.target.value })} />
+              <button className="btn btn-primary">Add asset</button>
+            </form>
+            {data.assets.length === 0 ? <Empty>No assets tracked yet.</Empty> : null}
+            {data.assets.map((item) => (
+              <ListItem
+                key={item.id}
+                title={item.name}
+                note={`${item.type} · ${Number(item.currentValue).toFixed(2)}`}
+                onEdit={() => {
+                  const name = ask('Asset name', item.name);
+                  if (!name) return;
+                  const type = ask('Asset type', item.type ?? 'other');
+                  if (!type) return;
+                  const currentValue = ask('Current value', item.currentValue);
+                  if (currentValue == null) return;
+                  action('asset.update', { id: item.id, name, type, currentValue });
+                }}
+                onDelete={() => action('asset.delete', { id: item.id, label: 'Asset' })}
+              />
+            ))}
+          </Parchment>
+
+          <Parchment title="Asset Trend" eyebrow="Snapshot history" action={<RangeToggle value={range} onChange={setRange} />}>
+            <ChartBox height={260}>
+              {assetData.length ? (
+                <ResponsiveContainer>
+                  <AreaChart data={assetData} margin={{ bottom: 16, left: 8 }}>
+                    <CartesianGrid stroke={gridStroke} vertical={false} />
+                    <XAxis dataKey="date" tick={{ fontSize: 11, fill: colors.muted }} tickLine={false} axisLine={false}><AxisLabel value="Date" /></XAxis>
+                    <YAxis tick={{ fontSize: 11, fill: colors.muted }} tickLine={false} axisLine={false} width={54}><AxisLabel value="Assets" axis="y" /></YAxis>
+                    <Tooltip content={<ChartTooltip />} />
+                    <Area type="monotone" dataKey="assets" name="Assets" stroke={colors.moss} fill={colors.moss} fillOpacity={0.12} strokeWidth={2} />
+                  </AreaChart>
+                </ResponsiveContainer>
+              ) : <ChartPlaceholder>Update an asset value to see the trend.</ChartPlaceholder>}
+            </ChartBox>
+          </Parchment>
+        </div>
+
+        <Parchment title="Net Worth" eyebrow="Assets minus liabilities">
+          <div className="mb-5 grid grid-cols-3 gap-6">
+            <Stat label="Assets" value={totalAssetValue.toFixed(2)} tone="text-moss" />
+            <Stat label="Liabilities" value={totalDebt.toFixed(2)} tone="text-wax" />
+            <Stat label="Net worth" value={netWorth.toFixed(2)} tone={netWorth >= 0 ? 'text-brass' : 'text-wax'} />
+          </div>
+          <SvgCanvasTrendChart
+            data={netWorthData}
+            valueKey="netWorth"
+            unit="$"
+            strokeColor={colors.brass}
+            fillGradientId="netWorthGradient"
+            height={210}
+          />
+        </Parchment>
       </div>
     </div>
   );
@@ -2243,8 +2924,6 @@ function Health({ data, action }: { data: Dashboard; action: (type: string, payl
   const workoutHeat = daysBack(data.today, 90).map((date) => ({ date, count: workoutCounts.get(date) ?? 0 }));
   const startWeight = weightData[0]?.weight;
   const currentWeight = weightData.at(-1)?.weight;
-  const progressLow = goal && startWeight ? Math.min(Number(goal), startWeight) : undefined;
-  const progressHigh = goal && startWeight ? Math.max(Number(goal), startWeight) : undefined;
 
   return (
     <div className="space-y-6">
@@ -2257,25 +2936,16 @@ function Health({ data, action }: { data: Dashboard; action: (type: string, payl
           <Stat label="Goal" value={goal ? `${goal} ${unit}` : '-'} tone="text-brass" />
           <Stat label="Delta" value={latest && goal ? (Number(latest) - Number(goal)).toFixed(1) : '-'} tone="text-moss" />
         </div>
-        {weightData.length ? (
-          <ChartBox>
-            <ResponsiveContainer>
-              <LineChart data={weightData} margin={{ bottom: 16, left: 8 }}>
-                <CartesianGrid stroke={gridStroke} vertical={false} />
-                <XAxis dataKey="date" tick={{ fontSize: 11, fill: colors.muted }} tickLine={false} axisLine={false}>
-                  <AxisLabel value="Date" />
-                </XAxis>
-                <YAxis tick={{ fontSize: 11, fill: colors.muted }} tickLine={false} axisLine={false} width={44} domain={['dataMin - 2', 'dataMax + 2']}>
-                  <AxisLabel value={`Weight (${unit})`} axis="y" />
-                </YAxis>
-                <Tooltip content={<ChartTooltip />} />
-                {progressLow && progressHigh && <ReferenceArea y1={progressLow} y2={progressHigh} fill={colors.brass} fillOpacity={0.07} />}
-                {goal && <ReferenceLine y={Number(goal)} stroke={colors.moss} strokeDasharray="4 4" label={{ value: 'goal', fontSize: 11, fill: colors.muted }} />}
-                <Line type="monotone" dataKey="weight" name={`Weight (${unit})`} stroke={colors.brass} strokeWidth={2} dot={{ r: 2, fill: colors.brass }} activeDot={{ r: 4 }} animationDuration={500} />
-              </LineChart>
-            </ResponsiveContainer>
-          </ChartBox>
-        ) : <ChartBox><ChartPlaceholder>Log weight to see the trend.</ChartPlaceholder></ChartBox>}
+        <SvgCanvasTrendChart
+          data={weightData}
+          valueKey="weight"
+          unit={unit}
+          strokeColor={colors.moss}
+          fillGradientId="weightGradient"
+          referenceValue={goal ? Number(goal) : undefined}
+          referenceLabel="Goal Weight"
+          height={210}
+        />
         {startWeight && currentWeight && goal ? (
           <div className="mt-3 text-xs text-[var(--muted)]">
             Progress made: {Math.abs(startWeight - currentWeight).toFixed(1)} {unit}; remaining: {Math.abs(currentWeight - Number(goal)).toFixed(1)} {unit}
@@ -2589,57 +3259,287 @@ function LoanItem({
   );
 }
 
+interface FlashcardItem {
+  id: string;
+  question: string;
+  answer: string;
+  subject: string;
+  intervalDays: number;
+  nextReviewDate: string;
+  lastReviewedDate?: string;
+  timesReviewed: number;
+}
+
+interface LearningResourceItem {
+  id: string;
+  title: string;
+  type: 'Book' | 'Course' | 'Video' | 'Article' | 'Document';
+  url?: string;
+  status: 'To Read/Watch' | 'In Progress' | 'Completed';
+  rating: number;
+  notes?: string;
+}
+
 function Learning({ data, action }: { data: Dashboard; action: (type: string, payload?: Row) => Promise<void> }) {
-  const learningTabs = ['Skills', 'Sessions', 'Resources'] as const;
+  const learningTabs = ['Overview', 'Subjects & Skills', 'Flashcards & Memory', 'Study Log', 'Resources'] as const;
   const [activeLearningTab, setActiveLearningTab] = useState<(typeof learningTabs)[number]>(() => {
-    if (typeof window === 'undefined') return 'Skills';
+    if (typeof window === 'undefined') return 'Overview';
     const saved = window.sessionStorage.getItem('life-ledger-learning-tab');
     window.sessionStorage.removeItem('life-ledger-learning-tab');
-    return learningTabs.includes(saved as (typeof learningTabs)[number]) ? saved as (typeof learningTabs)[number] : 'Skills';
+    return learningTabs.includes(saved as (typeof learningTabs)[number]) ? (saved as (typeof learningTabs)[number]) : 'Overview';
   });
+
   const [skill, setSkill] = useState({ name: '', status: 'DONT_KNOW_HOW' });
   const [skillGoalQuery, setSkillGoalQuery] = useState('');
-  const [session, setSession] = useState({ skillId: '', minutes: '', notes: '' });
+  const [session, setSession] = useState({ skillId: '', minutes: '', focusLevel: 'Deep Focus', notes: '' });
+
+  // Persistent Flashcards State (Spaced Repetition System)
+  const [flashcards, setFlashcards] = useState<FlashcardItem[]>(() => {
+    if (typeof window === 'undefined') return [];
+    const saved = localStorage.getItem('life-ledger-flashcards');
+    if (saved) {
+      try { return JSON.parse(saved); } catch {}
+    }
+    return [];
+  });
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('life-ledger-flashcards', JSON.stringify(flashcards));
+    }
+  }, [flashcards]);
+
+  // Persistent Resources State
+  const [resources, setResources] = useState<LearningResourceItem[]>(() => {
+    if (typeof window === 'undefined') return [];
+    const saved = localStorage.getItem('life-ledger-resources-v2');
+    if (saved) {
+      try { return JSON.parse(saved); } catch {}
+    }
+    return [];
+  });
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('life-ledger-resources-v2', JSON.stringify(resources));
+    }
+  }, [resources]);
+
+  // Form states for Flashcards & Resources
+  const [newCard, setNewCard] = useState({ question: '', answer: '', subject: '' });
+  const [newRes, setNewRes] = useState({ title: '', type: 'Book' as LearningResourceItem['type'], url: '', status: 'In Progress' as LearningResourceItem['status'], rating: 5, notes: '' });
+  const [cardSearch, setCardSearch] = useState('');
+  const [cardSubjectFilter, setCardSubjectFilter] = useState('All');
+  const [revealedCards, setRevealedCards] = useState<Record<string, boolean>>({});
+
   const goalOptions = data.goals.map((goal) => ({ id: String(goal.id), label: `${goalLevelLabel(String(goal.level))}: ${goal.title}` }));
   const goalIdFromLabel = (label: string) => goalOptions.find((goal) => goal.label === label)?.id ?? '';
-  const goalLabelFromId = (id?: string | null) => goalOptions.find((goal) => goal.id === id)?.label ?? '';
-  const skillHours = data.skills.map((skillRow) => ({
-    name: skillRow.name,
-    hours: Number((data.sessions.filter((row) => row.skillId === skillRow.id).reduce((sum, row) => sum + Number(row.minutes), 0) / 60).toFixed(1)),
-  })).filter((row) => row.hours > 0);
+
+  const totalMinutes = data.sessions.reduce((sum, s) => sum + Number(s.minutes || 0), 0);
+  const totalHours = Number((totalMinutes / 60).toFixed(1));
+  const activeSkillsCount = data.skills.length;
+  const masteredSkillsCount = data.skills.filter((s) => ['CAN_APPLY', 'MASTERED'].includes(String(s.status))).length;
+
+  const skillHours = data.skills
+    .map((skillRow) => ({
+      name: skillRow.name,
+      hours: Number((data.sessions.filter((row) => row.skillId === skillRow.id).reduce((sum, row) => sum + Number(row.minutes), 0) / 60).toFixed(1)),
+    }))
+    .filter((row) => row.hours > 0);
+
+  // Spaced Repetition Due Queue (nextReviewDate <= today)
+  const dueFlashcards = flashcards.filter((card) => {
+    if (!card.nextReviewDate) return true;
+    return card.nextReviewDate <= dateKey(data.today);
+  });
+
+  const uniqueSubjects = Array.from(new Set(flashcards.map((c) => c.subject).filter(Boolean)));
+
+  const filteredCards = flashcards.filter((c) => {
+    const matchSubject = cardSubjectFilter === 'All' || c.subject === cardSubjectFilter;
+    const matchQuery = !cardSearch.trim() || c.question.toLowerCase().includes(cardSearch.toLowerCase()) || c.answer.toLowerCase().includes(cardSearch.toLowerCase()) || c.subject.toLowerCase().includes(cardSearch.toLowerCase());
+    return matchSubject && matchQuery;
+  });
+
+  const reviewCard = (cardId: string, addDays: number) => {
+    const nextDate = dateKey(new Date(new Date(data.today).getTime() + addDays * 86400000).toISOString());
+    setFlashcards((prev) =>
+      prev.map((c) =>
+        c.id === cardId
+          ? {
+              ...c,
+              intervalDays: addDays,
+              nextReviewDate: nextDate,
+              lastReviewedDate: dateKey(data.today),
+              timesReviewed: (c.timesReviewed || 0) + 1,
+            }
+          : c
+      )
+    );
+    action('xp.award', { amount: 10, source: 'learning', note: 'Reviewed flashcard memory' });
+  };
+
   return (
-    <div className="space-y-5">
-      <div className="grid gap-5 lg:grid-cols-[1.4fr_0.6fr]">
-        <Parchment title="Hours by Skill" eyebrow="Cumulative study">
-          {skillHours.length ? (
-            <ChartBox>
-              <ResponsiveContainer>
-                <BarChart data={skillHours} layout="vertical" margin={{ left: 18, bottom: 14 }}>
-                  <CartesianGrid stroke={gridStroke} horizontal={false} />
-                  <XAxis type="number" tick={{ fontSize: 11, fill: colors.muted }} tickLine={false} axisLine={false}>
-                    <AxisLabel value="Hours" />
-                  </XAxis>
-                  <YAxis dataKey="name" type="category" tick={{ fontSize: 11, fill: colors.muted }} tickLine={false} axisLine={false} width={90}>
-                    <AxisLabel value="Skill" axis="y" />
-                  </YAxis>
-                  <Tooltip content={<ChartTooltip />} />
-                  <Bar dataKey="hours" name="Hours" fill={colors.brass} radius={[0, 4, 4, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
-            </ChartBox>
-          ) : <ChartBox><ChartPlaceholder>Log a study session to see skill progress.</ChartPlaceholder></ChartBox>}
-        </Parchment>
-        <Parchment title="Study Streak" eyebrow="Consecutive days">
-          <Stat label="Current" value={`${studyStreak(data)}d`} tone="text-moss" />
-          <div className="mt-5">
-            <Heatmap days={moduleCountsByDay({ ...data, journalEntries: [], weights: [], workouts: [], sleep: [], debtPayments: [], dietLogs: [], xpEvents: data.xpEvents.filter((row) => row.source === 'learning') }, 42)} compact />
-          </div>
-        </Parchment>
+    <div className="space-y-6">
+      {/* Top Learning Analytics Stats Banner */}
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="rounded-2xl border bg-card p-4 shadow-2xs">
+          <div className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Total Focus Time</div>
+          <div className="mt-1 text-2xl font-bold text-ink">{totalHours} hrs</div>
+          <div className="mt-1 text-xs text-emerald-600 font-medium">⚡ Cumulative Study & Practice</div>
+        </div>
+        <div className="rounded-2xl border bg-card p-4 shadow-2xs">
+          <div className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Learning Streak</div>
+          <div className="mt-1 text-2xl font-bold text-moss">{studyStreak(data)} days</div>
+          <div className="mt-1 text-xs text-slate-500 font-medium">🔥 Active Learning Habit</div>
+        </div>
+        <div className="rounded-2xl border bg-card p-4 shadow-2xs">
+          <div className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Mastered Subjects</div>
+          <div className="mt-1 text-2xl font-bold text-brass">{masteredSkillsCount} / {activeSkillsCount}</div>
+          <div className="mt-1 text-xs text-slate-500 font-medium">🎯 Practitioner & Master Stage</div>
+        </div>
+        <div className="rounded-2xl border bg-card p-4 shadow-2xs">
+          <div className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Memory Queue Due</div>
+          <div className="mt-1 text-2xl font-bold text-indigo-600">{dueFlashcards.length} cards</div>
+          <div className="mt-1 text-xs text-indigo-500 font-medium">🧠 Spaced Repetition Due Today</div>
+        </div>
       </div>
+
       <SubTabs tabs={learningTabs} value={activeLearningTab} onChange={setActiveLearningTab} ariaLabel="Learning sections" />
 
-      <div className={activeLearningTab === 'Skills' ? 'space-y-5' : 'hidden'}>
-        <Parchment title="Skills" eyebrow="Active learning">
+      {/* TAB 1: OVERVIEW */}
+      <div className={activeLearningTab === 'Overview' ? 'space-y-6' : 'hidden'}>
+        {/* Spaced Repetition Flashcard Memory Queue */}
+        {dueFlashcards.length > 0 ? (
+          <div className="rounded-3xl border border-indigo-200 bg-gradient-to-r from-indigo-50/90 via-purple-50/50 to-card p-5 shadow-sm">
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-indigo-100 pb-3">
+              <div className="flex items-center gap-2">
+                <span className="flex h-7 w-7 items-center justify-center rounded-xl bg-indigo-600 text-white text-xs font-bold">🧠</span>
+                <div>
+                  <h3 className="text-sm font-semibold text-indigo-950">Spaced Repetition Review Queue</h3>
+                  <p className="text-xs text-indigo-700">Cards and memory items scheduled for review today based on your forgetting curve</p>
+                </div>
+              </div>
+              <span className="rounded-full bg-indigo-100 px-3 py-1 text-xs font-bold text-indigo-800">
+                {dueFlashcards.length} Cards Due Today
+              </span>
+            </div>
+
+            <div className="mt-4 grid gap-3 md:grid-cols-2">
+              {dueFlashcards.map((card) => {
+                const isRevealed = revealedCards[card.id];
+                return (
+                  <div key={card.id} className="rounded-2xl border border-indigo-200/80 bg-white p-4 shadow-2xs flex flex-col justify-between">
+                    <div>
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="rounded-full bg-indigo-100 px-2.5 py-0.5 text-[10px] font-bold text-indigo-800">
+                          {card.subject || 'General'}
+                        </span>
+                        <span className="text-[10px] text-slate-400 font-mono">Reviewed {card.timesReviewed || 0} times</span>
+                      </div>
+                      <h4 className="mt-2 text-sm font-bold text-slate-900">{card.question}</h4>
+                      
+                      {isRevealed ? (
+                        <div className="mt-3 rounded-xl bg-slate-50 p-3 text-xs text-slate-800 border border-slate-200/60 leading-relaxed animate-in fade-in duration-200">
+                          <span className="font-bold text-indigo-900 block mb-1">Answer / Explanation:</span>
+                          {card.answer}
+                        </div>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => setRevealedCards((prev) => ({ ...prev, [card.id]: true }))}
+                          className="mt-3 w-full rounded-xl border border-dashed border-indigo-200 bg-indigo-50/50 py-2 text-xs font-medium text-indigo-700 hover:bg-indigo-100/60 transition"
+                        >
+                          👁️ Show Answer / Reveal
+                        </button>
+                      )}
+                    </div>
+
+                    {isRevealed ? (
+                      <div className="mt-4 border-t pt-3 flex items-center justify-between gap-1">
+                        <span className="text-[10px] font-semibold text-slate-500">Grade Memory:</span>
+                        <div className="flex items-center gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => reviewCard(card.id, 1)}
+                            className="rounded-lg bg-rose-50 px-2 py-1 text-[11px] font-semibold text-rose-700 hover:bg-rose-600 hover:text-white transition"
+                            title="Review again tomorrow"
+                          >
+                            Again (+1d)
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => reviewCard(card.id, 3)}
+                            className="rounded-lg bg-amber-50 px-2 py-1 text-[11px] font-semibold text-amber-700 hover:bg-amber-600 hover:text-white transition"
+                            title="Review in 3 days"
+                          >
+                            Hard (+3d)
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => reviewCard(card.id, 7)}
+                            className="rounded-lg bg-emerald-50 px-2 py-1 text-[11px] font-semibold text-emerald-700 hover:bg-emerald-600 hover:text-white transition"
+                            title="Review in 1 week"
+                          >
+                            Good (+7d)
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => reviewCard(card.id, 14)}
+                            className="rounded-lg bg-indigo-50 px-2 py-1 text-[11px] font-semibold text-indigo-700 hover:bg-indigo-600 hover:text-white transition"
+                            title="Review in 2 weeks"
+                          >
+                            Easy (+14d)
+                          </button>
+                        </div>
+                      </div>
+                    ) : null}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        ) : (
+          <div className="rounded-2xl border bg-card p-4 text-center text-xs text-slate-500">
+            ✅ All memory flashcards reviewed for today! Add new cards under the <span className="font-semibold text-ink">&quot;Flashcards & Memory&quot;</span> tab.
+          </div>
+        )}
+
+        <div className="grid gap-5 lg:grid-cols-[1.4fr_0.6fr]">
+          <Parchment title="Hours by Skill / Subject" eyebrow="Cumulative study & practice">
+            {skillHours.length ? (
+              <ChartBox>
+                <ResponsiveContainer>
+                  <BarChart data={skillHours} layout="vertical" margin={{ left: 18, bottom: 14 }}>
+                    <CartesianGrid stroke={gridStroke} horizontal={false} />
+                    <XAxis type="number" tick={{ fontSize: 11, fill: colors.muted }} tickLine={false} axisLine={false}>
+                      <AxisLabel value="Hours" />
+                    </XAxis>
+                    <YAxis dataKey="name" type="category" tick={{ fontSize: 11, fill: colors.muted }} tickLine={false} axisLine={false} width={90}>
+                      <AxisLabel value="Skill" axis="y" />
+                    </YAxis>
+                    <Tooltip content={<ChartTooltip />} />
+                    <Bar dataKey="hours" name="Hours" fill={colors.brass} radius={[0, 4, 4, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </ChartBox>
+            ) : (
+              <ChartBox><ChartPlaceholder>Log a study or practice session to view progress.</ChartPlaceholder></ChartBox>
+            )}
+          </Parchment>
+
+          <Parchment title="Study Streak" eyebrow="Consecutive days">
+            <Stat label="Current Streak" value={`${studyStreak(data)}d`} tone="text-moss" />
+            <div className="mt-5">
+              <Heatmap days={moduleCountsByDay({ ...data, journalEntries: [], weights: [], workouts: [], sleep: [], debtPayments: [], dietLogs: [], xpEvents: data.xpEvents.filter((row) => row.source === 'learning') }, 42)} compact />
+            </div>
+          </Parchment>
+        </div>
+      </div>
+
+      {/* TAB 2: SUBJECTS & SKILLS */}
+      <div className={activeLearningTab === 'Subjects & Skills' ? 'space-y-6' : 'hidden'}>
+        <Parchment title="Subjects & Skill Trees" eyebrow="Track Progression Across Any Discipline">
           <form
             onSubmit={(event) => {
               event.preventDefault();
@@ -2649,88 +3549,374 @@ function Learning({ data, action }: { data: Dashboard; action: (type: string, pa
                 setSkillGoalQuery('');
               });
             }}
-            className="mb-4 grid gap-2 md:grid-cols-[1fr_230px_260px_auto]"
+            className="mb-6 grid gap-2 md:grid-cols-[1fr_220px_240px_auto]"
           >
-            <Field value={skill.name} onChange={(event) => setSkill({ ...skill, name: event.target.value })} placeholder="Skill name..." />
+            <Field value={skill.name} onChange={(event) => setSkill({ ...skill, name: event.target.value })} placeholder="Subject or skill title..." />
             <Select value={skill.status} onChange={(event) => setSkill({ ...skill, status: event.target.value })}>
               {skillStages.map((stage) => <option key={stage.value} value={stage.value}>{stage.label}</option>)}
             </Select>
-            <Field list="learning-goal-options" value={skillGoalQuery} onChange={(event) => setSkillGoalQuery(event.target.value)} placeholder="Link to a goal (optional)" />
+            <Field list="learning-goal-options" value={skillGoalQuery} onChange={(event) => setSkillGoalQuery(event.target.value)} placeholder="Link to goal (optional)" />
             <datalist id="learning-goal-options">
               {goalOptions.map((goal) => <option key={goal.id} value={goal.label} />)}
             </datalist>
-            <button className="btn btn-primary">Add</button>
+            <button className="btn btn-primary">+ Add Subject / Skill</button>
           </form>
-          {data.skills.length === 0 ? <Empty tone="ink">No skills added yet.</Empty> : null}
-          {data.skills.map((item) => (
-            <div key={item.id} className="ledger-row flex items-center gap-3 py-3">
-              <div className="min-w-0 flex-1">
-                {item.linkedGoalId ? (
-                  <span className="mb-1 inline-flex items-center gap-1 rounded-full border border-brass/25 bg-brass/10 px-2 py-0.5 text-xs font-medium text-brass">
-                    <NavIcon name="target" className="h-3 w-3" /> {goalTitle(data, String(item.linkedGoalId)) ?? 'Linked goal'}
-                  </span>
-                ) : null}
-                <div className="truncate text-base font-medium">{item.name}</div>
-                <SkillStageProgress stage={String(item.status ?? 'DONT_KNOW_HOW')} />
-              </div>
-              <Select
-                value={String(item.status ?? 'DONT_KNOW_HOW')}
-                onChange={(event) => action('skill.update', { ...item, status: event.target.value })}
-                className="max-w-56 text-xs"
-                aria-label="Skill stage"
-              >
-                {skillStages.map((stage) => <option key={stage.value} value={stage.value}>{stage.label}</option>)}
-              </Select>
+
+          {data.skills.length === 0 ? <Empty tone="ink">No subjects or skills added yet. Add a subject above to begin tracking your learning roadmap!</Empty> : null}
+
+          <div className="grid gap-4 md:grid-cols-2">
+            {data.skills.map((item) => {
+              const hours = Number((data.sessions.filter((row) => row.skillId === item.id).reduce((sum, row) => sum + Number(row.minutes), 0) / 60).toFixed(1));
+              return (
+                <div key={item.id} className="rounded-2xl border bg-card p-4 shadow-2xs hover:shadow-md transition">
+                  <div className="flex items-start justify-between gap-2">
+                    <div>
+                      {item.linkedGoalId ? (
+                        <span className="mb-1 inline-flex items-center gap-1 rounded-full border border-brass/25 bg-brass/10 px-2 py-0.5 text-xs font-semibold text-brass">
+                          <NavIcon name="target" className="h-3 w-3" /> {goalTitle(data, String(item.linkedGoalId)) ?? 'Linked Goal'}
+                        </span>
+                      ) : null}
+                      <h4 className="text-base font-bold text-ink">{item.name}</h4>
+                    </div>
+                    <span className="rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-semibold text-slate-600 font-mono">
+                      {hours} hrs logged
+                    </span>
+                  </div>
+
+                  <div className="mt-3">
+                    <SkillStageProgress stage={String(item.status ?? 'DONT_KNOW_HOW')} />
+                  </div>
+
+                  <div className="mt-4 flex flex-wrap items-center justify-between gap-2 border-t pt-3">
+                    <Select
+                      value={String(item.status ?? 'DONT_KNOW_HOW')}
+                      onChange={(event) => action('skill.update', { ...item, status: event.target.value })}
+                      className="text-xs py-1"
+                      aria-label="Skill stage"
+                    >
+                      {skillStages.map((stage) => <option key={stage.value} value={stage.value}>{stage.label}</option>)}
+                    </Select>
+
+                    <div className="flex items-center gap-2">
+                      <button
+                        className="rounded-lg px-2 py-1 text-xs text-brass hover:bg-brass/10"
+                        onClick={() => {
+                          const name = ask('Skill name', item.name);
+                          if (name) action('skill.update', { ...item, name, linkedGoalId: item.linkedGoalId ?? null });
+                        }}
+                      >
+                        Edit
+                      </button>
+                      <button
+                        className="rounded-lg px-2 py-1 text-xs text-wax hover:bg-wax/10"
+                        onClick={() => action('skill.delete', { id: item.id, label: 'Skill' })}
+                      >
+                        Delete
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </Parchment>
+      </div>
+
+      {/* TAB 3: FLASHCARDS & MEMORY */}
+      <div className={activeLearningTab === 'Flashcards & Memory' ? 'space-y-6' : 'hidden'}>
+        <Parchment title="Flashcards & Memory Vault" eyebrow="Spaced Repetition Memory System">
+          {/* Add Flashcard Form */}
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (!newCard.question.trim() || !newCard.answer.trim()) return;
+              const card: FlashcardItem = {
+                id: String(Date.now()),
+                question: newCard.question.trim(),
+                answer: newCard.answer.trim(),
+                subject: newCard.subject.trim() || 'General',
+                intervalDays: 1,
+                nextReviewDate: dateKey(data.today),
+                timesReviewed: 0,
+              };
+              setFlashcards([card, ...flashcards]);
+              setNewCard({ question: '', answer: '', subject: '' });
+              action('xp.award', { amount: 15, source: 'learning', note: `Added Flashcard ${card.question}` });
+            }}
+            className="mb-6 rounded-2xl border bg-background/60 p-4 space-y-3"
+          >
+            <div className="grid gap-2 md:grid-cols-[1fr_180px]">
               <Field
-                list="learning-goal-options"
-                defaultValue={goalLabelFromId(item.linkedGoalId)}
-                onBlur={(event) => action('skill.update', { ...item, linkedGoalId: goalIdFromLabel(event.target.value) || null })}
-                className="max-w-48 text-xs"
-                placeholder="Link to a goal (optional)"
-                aria-label="Link skill to goal"
+                placeholder="Question, prompt, or concept title..."
+                value={newCard.question}
+                onChange={(e) => setNewCard({ ...newCard, question: e.target.value })}
               />
-              <button className="rounded px-2 py-1 text-sm text-brass hover:bg-brass hover:text-white" onClick={() => {
-                const name = ask('Skill name', item.name);
-                if (name) action('skill.update', { ...item, name, linkedGoalId: item.linkedGoalId ?? null });
-              }}>Edit</button>
-              <button className="rounded px-2 py-1 text-sm text-wax hover:bg-wax hover:text-white" onClick={() => action('skill.delete', { id: item.id, label: 'Skill' })}>Delete</button>
+              <Field
+                placeholder="Subject / Tag..."
+                value={newCard.subject}
+                onChange={(e) => setNewCard({ ...newCard, subject: e.target.value })}
+              />
             </div>
-          ))}
-        </Parchment>
-      </div>
-
-      <div className={activeLearningTab === 'Sessions' ? 'space-y-5' : 'hidden'}>
-        <Parchment title="Sessions" eyebrow="Study log">
-          <form onSubmit={(e) => submit(e, () => action('learning.add', session).then(() => setSession({ skillId: '', minutes: '', notes: '' })))} className="mb-4 grid gap-2 md:grid-cols-4 lg:grid-cols-2">
-            <Select value={session.skillId} onChange={(e) => setSession({ ...session, skillId: e.target.value })}>
-              <option value="">Select skill</option>
-              {data.skills.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
-            </Select>
-            <Field placeholder="Minutes" type="number" value={session.minutes} onChange={(e) => setSession({ ...session, minutes: e.target.value })} />
-            <Field placeholder="Notes" value={session.notes} onChange={(e) => setSession({ ...session, notes: e.target.value })} />
-            <button className="btn btn-primary">Log</button>
+            <div className="grid gap-2 md:grid-cols-[1fr_auto]">
+              <TextArea
+                placeholder="Answer, key explanation, formula, or solution details..."
+                value={newCard.answer}
+                onChange={(e) => setNewCard({ ...newCard, answer: e.target.value })}
+                className="min-h-16"
+              />
+              <button className="btn btn-primary self-end">+ Create Card</button>
+            </div>
           </form>
-          {data.sessions.length === 0 ? <Empty tone="moss">No learning sessions logged yet.</Empty> : null}
-          {data.sessions.map((item) => (
-            <ListItem
-              key={item.id}
-              title={`${item.minutes} minutes`}
-              note={`${item.logDate}${item.skill?.name ? ` · ${item.skill.name}` : ''}${item.notes ? ` · ${item.notes}` : ''}`}
-              onEdit={() => {
-                const minutes = ask('Minutes studied', item.minutes);
-                if (minutes == null) return;
-                const notes = ask('Notes', item.notes ?? '');
-                action('learning.update', { id: item.id, skillId: item.skillId ?? null, minutes, notes });
-              }}
-              onDelete={() => action('learning.delete', { id: item.id, label: 'Learning session' })}
-            />
-          ))}
+
+          {/* Search & Filter Bar */}
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <Field
+                placeholder="Search flashcards or subjects..."
+                value={cardSearch}
+                onChange={(e) => setCardSearch(e.target.value)}
+                className="w-64 text-xs"
+              />
+              <Select
+                value={cardSubjectFilter}
+                onChange={(e) => setCardSubjectFilter(e.target.value)}
+                className="text-xs py-1"
+              >
+                <option value="All">All Subjects</option>
+                {uniqueSubjects.map((sub) => (
+                  <option key={sub} value={sub}>{sub}</option>
+                ))}
+              </Select>
+            </div>
+            <span className="text-xs text-slate-500 font-mono">{filteredCards.length} Cards Total</span>
+          </div>
+
+          {filteredCards.length === 0 ? <Empty tone="ink">No flashcards found. Create a flashcard above to start building your memory vault!</Empty> : null}
+
+          <div className="grid gap-4 md:grid-cols-2">
+            {filteredCards.map((c) => {
+              const isRevealed = revealedCards[c.id];
+              return (
+                <div key={c.id} className="rounded-2xl border bg-card p-4 shadow-2xs hover:shadow-md transition flex flex-col justify-between">
+                  <div>
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="rounded-full bg-slate-100 px-2.5 py-0.5 text-[10px] font-semibold text-slate-700">
+                        {c.subject || 'General'}
+                      </span>
+                      <div className="flex items-center gap-2 text-[10px] text-slate-400 font-mono">
+                        <span>Reviewed {c.timesReviewed || 0}x</span>
+                        <button
+                          type="button"
+                          onClick={() => setFlashcards((prev) => prev.filter((item) => item.id !== c.id))}
+                          className="hover:text-red-600 transition"
+                          title="Delete card"
+                        >
+                          ✕
+                        </button>
+                      </div>
+                    </div>
+
+                    <h4 className="mt-2.5 text-base font-bold text-ink">{c.question}</h4>
+
+                    {isRevealed ? (
+                      <div className="mt-3 rounded-xl bg-slate-50/80 p-3 text-xs leading-relaxed text-slate-800 border border-slate-200/60 animate-in fade-in duration-200">
+                        <span className="font-bold text-slate-900 block mb-1">Answer / Details:</span>
+                        {c.answer}
+                      </div>
+                    ) : null}
+                  </div>
+
+                  <div className="mt-4 border-t pt-3 flex items-center justify-between gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setRevealedCards((prev) => ({ ...prev, [c.id]: !prev[c.id] }))}
+                      className="text-xs font-semibold text-brass hover:underline"
+                    >
+                      {isRevealed ? '🙈 Hide Answer' : '👁️ Reveal Answer'}
+                    </button>
+                    <span className="text-[10px] text-slate-400 font-mono">
+                      Next review: {c.nextReviewDate}
+                    </span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
         </Parchment>
       </div>
 
-      <div className={activeLearningTab === 'Resources' ? 'space-y-5' : 'hidden'}>
-        <Parchment title="Resources" eyebrow="Tracker">
-          <Empty tone="ink">No resources tracked yet.</Empty>
+      {/* TAB 4: STUDY LOG */}
+      <div className={activeLearningTab === 'Study Log' ? 'space-y-6' : 'hidden'}>
+        <Parchment title="Study & Practice Sessions" eyebrow="Timer & Session Logger">
+          <form
+            onSubmit={(e) =>
+              submit(e, () =>
+                action('learning.add', {
+                  skillId: session.skillId,
+                  minutes: session.minutes,
+                  notes: `${session.focusLevel ? `[${session.focusLevel}] ` : ''}${session.notes}`,
+                }).then(() => setSession({ skillId: '', minutes: '', focusLevel: 'Deep Focus', notes: '' }))
+              )
+            }
+            className="mb-6 rounded-2xl border bg-background/60 p-4 space-y-3"
+          >
+            <div className="grid gap-2 md:grid-cols-[1fr_160px_160px_auto]">
+              <Select value={session.skillId} onChange={(e) => setSession({ ...session, skillId: e.target.value })}>
+                <option value="">Select Subject / Skill</option>
+                {data.skills.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+              </Select>
+              <Field placeholder="Duration (Minutes)" type="number" value={session.minutes} onChange={(e) => setSession({ ...session, minutes: e.target.value })} />
+              <Select value={session.focusLevel} onChange={(e) => setSession({ ...session, focusLevel: e.target.value })}>
+                <option value="Deep Focus">⚡ Deep Focus</option>
+                <option value="Moderate">🧠 Moderate Focus</option>
+                <option value="Light Practice">☕ Light Practice</option>
+              </Select>
+              <button className="btn btn-primary">Log Session</button>
+            </div>
+            <Field placeholder="Session notes, takeaways, or exercises completed..." value={session.notes} onChange={(e) => setSession({ ...session, notes: e.target.value })} />
+          </form>
+
+          {data.sessions.length === 0 ? <Empty tone="moss">No study sessions logged yet. Log your first session above!</Empty> : null}
+
+          <div className="space-y-3">
+            {data.sessions.map((item) => (
+              <ListItem
+                key={item.id}
+                title={`${item.minutes} minutes`}
+                note={`${item.logDate}${item.skill?.name ? ` · ${item.skill.name}` : ''}${item.notes ? ` · ${item.notes}` : ''}`}
+                onEdit={() => {
+                  const minutes = ask('Minutes studied', item.minutes);
+                  if (minutes == null) return;
+                  const notes = ask('Notes', item.notes ?? '');
+                  action('learning.update', { id: item.id, skillId: item.skillId ?? null, minutes, notes });
+                }}
+                onDelete={() => action('learning.delete', { id: item.id, label: 'Learning session' })}
+              />
+            ))}
+          </div>
+        </Parchment>
+      </div>
+
+      {/* TAB 5: RESOURCES */}
+      <div className={activeLearningTab === 'Resources' ? 'space-y-6' : 'hidden'}>
+        <Parchment title="Resource Library & Bookmarks" eyebrow="Learning Materials & References">
+          {/* Add Resource Form */}
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (!newRes.title.trim()) return;
+              const newItem: LearningResourceItem = {
+                id: String(Date.now()),
+                title: newRes.title.trim(),
+                type: newRes.type,
+                url: newRes.url.trim() || undefined,
+                status: newRes.status,
+                rating: Number(newRes.rating),
+                notes: newRes.notes.trim() || undefined,
+              };
+              setResources([newItem, ...resources]);
+              setNewRes({ title: '', type: 'Book', url: '', status: 'In Progress', rating: 5, notes: '' });
+              action('xp.award', { amount: 10, source: 'learning', note: `Added Resource ${newItem.title}` });
+            }}
+            className="mb-6 rounded-2xl border bg-background/60 p-4 space-y-3"
+          >
+            <div className="grid gap-2 md:grid-cols-[1.2fr_130px_140px_120px]">
+              <Field
+                placeholder="Resource title..."
+                value={newRes.title}
+                onChange={(e) => setNewRes({ ...newRes, title: e.target.value })}
+              />
+              <Select value={newRes.type} onChange={(e) => setNewRes({ ...newRes, type: e.target.value as LearningResourceItem['type'] })}>
+                <option value="Book">📖 Book</option>
+                <option value="Course">🎓 Course</option>
+                <option value="Video">📺 Video</option>
+                <option value="Article">📄 Article</option>
+                <option value="Document">📑 Document</option>
+              </Select>
+              <Select value={newRes.status} onChange={(e) => setNewRes({ ...newRes, status: e.target.value as LearningResourceItem['status'] })}>
+                <option value="To Read/Watch">To Read/Watch</option>
+                <option value="In Progress">In Progress</option>
+                <option value="Completed">Completed</option>
+              </Select>
+              <Select value={newRes.rating} onChange={(e) => setNewRes({ ...newRes, rating: Number(e.target.value) })}>
+                <option value="5">⭐⭐⭐⭐⭐ (5)</option>
+                <option value="4">⭐⭐⭐⭐ (4)</option>
+                <option value="3">⭐⭐⭐ (3)</option>
+              </Select>
+            </div>
+            <div className="grid gap-2 md:grid-cols-[1fr_1fr_auto]">
+              <Field
+                placeholder="URL / Link (optional)..."
+                value={newRes.url}
+                onChange={(e) => setNewRes({ ...newRes, url: e.target.value })}
+              />
+              <Field
+                placeholder="Key takeaways or summary notes..."
+                value={newRes.notes}
+                onChange={(e) => setNewRes({ ...newRes, notes: e.target.value })}
+              />
+              <button className="btn btn-primary">+ Add Resource</button>
+            </div>
+          </form>
+
+          {resources.length === 0 ? <Empty tone="ink">No learning resources tracked yet. Add books, courses, or videos above!</Empty> : null}
+
+          <div className="grid gap-4 md:grid-cols-2">
+            {resources.map((res) => (
+              <div key={res.id} className="rounded-2xl border bg-card p-4 shadow-2xs hover:shadow-md transition">
+                <div className="flex items-start justify-between gap-2">
+                  <div>
+                    <span className="rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-semibold text-slate-700">
+                      {res.type === 'Book' ? '📖 Book' : res.type === 'Course' ? '🎓 Course' : res.type === 'Video' ? '📺 Video' : '📄 Resource'}
+                    </span>
+                    <h4 className="mt-1.5 text-base font-bold text-ink">{res.title}</h4>
+                  </div>
+                  <Select
+                    value={res.status}
+                    onChange={(e) =>
+                      setResources((prev) =>
+                        prev.map((item) => (item.id === res.id ? { ...item, status: e.target.value as LearningResourceItem['status'] } : item))
+                      )
+                    }
+                    className="text-xs py-0.5"
+                  >
+                    <option value="To Read/Watch">To Read/Watch</option>
+                    <option value="In Progress">In Progress</option>
+                    <option value="Completed">Completed ✓</option>
+                  </Select>
+                </div>
+
+                {res.notes && (
+                  <p className="mt-3 text-xs leading-relaxed text-slate-600 bg-slate-50 p-2.5 rounded-xl border border-slate-200/60">
+                    {res.notes}
+                  </p>
+                )}
+
+                <div className="mt-4 flex items-center justify-between border-t pt-3 text-xs">
+                  <span className="text-amber-500 font-bold">{'★'.repeat(res.rating)}</span>
+                  <div className="flex items-center gap-3">
+                    {res.url ? (
+                      <a
+                        href={res.url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="font-semibold text-brass hover:underline"
+                      >
+                        Open Link ↗
+                      </a>
+                    ) : null}
+                    <button
+                      type="button"
+                      onClick={() => setResources((prev) => prev.filter((item) => item.id !== res.id))}
+                      className="text-slate-400 hover:text-red-600"
+                    >
+                      Delete
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
         </Parchment>
       </div>
     </div>
@@ -3220,18 +4406,15 @@ function Review({ data, action }: { data: Dashboard; action: (type: string, payl
       </Parchment>
       <PatternsPanel patterns={data.patterns} />
       <div className="grid gap-6 md:grid-cols-2">
-        <Parchment title="Weight Trend" eyebrow="Mini sparkline">
-          <SparkBox>
-            {data.weights.length ? (
-              <ResponsiveContainer>
-                <LineChart data={data.weights.slice(-14).map((row) => ({ date: row.logDate, weight: Number(row.weight) }))}>
-                  <CartesianGrid stroke={gridStroke} vertical={false} />
-                  <Tooltip content={<ChartTooltip />} />
-                  <Line type="monotone" dataKey="weight" name="Weight" stroke={colors.brass} strokeWidth={2} dot={false} />
-                </LineChart>
-              </ResponsiveContainer>
-            ) : <ChartPlaceholder>Log weight to see this trend.</ChartPlaceholder>}
-          </SparkBox>
+        <Parchment title="Weight Trend" eyebrow="Vector trend line">
+          <SvgCanvasTrendChart
+            data={data.weights.slice(-14).map((row) => ({ date: row.logDate, weight: Number(row.weight) }))}
+            valueKey="weight"
+            unit="kg"
+            strokeColor={colors.moss}
+            fillGradientId="execWeightGrad"
+            height={140}
+          />
         </Parchment>
         <Parchment title="Debt Trend" eyebrow="Toward zero">
           <SparkBox>

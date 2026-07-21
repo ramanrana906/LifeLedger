@@ -5,17 +5,21 @@ import {
 
 describe('correlation engine', () => {
   it('computes Pearson correlation for numeric pairs', () => {
-    expect(pearsonCorrelation([
-      { x: 1, y: 2 },
-      { x: 2, y: 4 },
-      { x: 3, y: 6 },
-    ])).toBeCloseTo(1);
+    expect(
+      pearsonCorrelation([
+        { x: 1, y: 2 },
+        { x: 2, y: 4 },
+        { x: 3, y: 6 },
+      ]),
+    ).toBeCloseTo(1);
 
-    expect(pearsonCorrelation([
-      { x: 1, y: 6 },
-      { x: 2, y: 4 },
-      { x: 3, y: 2 },
-    ])).toBeCloseTo(-1);
+    expect(
+      pearsonCorrelation([
+        { x: 1, y: 6 },
+        { x: 2, y: 4 },
+        { x: 3, y: 2 },
+      ]),
+    ).toBeCloseTo(-1);
   });
 
   it('only surfaces patterns with enough overlapping points and meaningful correlation', () => {
@@ -40,7 +44,9 @@ describe('correlation engine', () => {
       habits: [],
     });
 
-    expect(patterns.some((pattern) => pattern.id.startsWith('sleep-next-mood'))).toBe(true);
+    expect(
+      patterns.some((pattern) => pattern.id.startsWith('sleep-next-mood')),
+    ).toBe(true);
     expect(patterns[0].sampleSize).toBeGreaterThanOrEqual(14);
     expect(Math.abs(patterns[0].coefficient)).toBeGreaterThan(0.4);
     expect(patterns[0].sentence).toContain('last');

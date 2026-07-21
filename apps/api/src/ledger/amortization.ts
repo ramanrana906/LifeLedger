@@ -13,7 +13,11 @@ export function monthlyRate(annualRatePercent: number) {
   return annualRatePercent / 100 / 12;
 }
 
-export function expectedEmi(principal: number, annualRatePercent: number, tenureMonths: number) {
+export function expectedEmi(
+  principal: number,
+  annualRatePercent: number,
+  tenureMonths: number,
+) {
   if (principal <= 0 || tenureMonths <= 0) return 0;
   const r = monthlyRate(annualRatePercent);
   if (r === 0) return roundMoney(principal / tenureMonths);
@@ -27,7 +31,9 @@ export function amortizePayment(
   emiAmount: number,
 ): AmortizedPayment {
   const interestPortion = roundMoney(balance * monthlyRate(annualRatePercent));
-  const principalPortion = roundMoney(Math.min(balance, Math.max(emiAmount - interestPortion, 0)));
+  const principalPortion = roundMoney(
+    Math.min(balance, Math.max(emiAmount - interestPortion, 0)),
+  );
   return {
     amount: roundMoney(emiAmount),
     interestPortion,
@@ -36,7 +42,10 @@ export function amortizePayment(
   };
 }
 
-export function applyPrincipalPayment(balance: number, amount: number): AmortizedPayment {
+export function applyPrincipalPayment(
+  balance: number,
+  amount: number,
+): AmortizedPayment {
   const principalPortion = roundMoney(Math.min(balance, amount));
   return {
     amount: roundMoney(amount),

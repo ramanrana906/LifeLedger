@@ -73,7 +73,9 @@ export function pearsonCorrelation(points: { x: number; y: number }[]) {
   return numerator / denominator;
 }
 
-export function computeCorrelationPatterns(input: CorrelationInput): CorrelationPattern[] {
+export function computeCorrelationPatterns(
+  input: CorrelationInput,
+): CorrelationPattern[] {
   const pairs = buildMetricPairs(input);
   const patterns: CorrelationPattern[] = [];
 
@@ -84,7 +86,8 @@ export function computeCorrelationPatterns(input: CorrelationInput): Correlation
       if (points.length < MIN_OVERLAP) continue;
 
       const coefficient = pearsonCorrelation(points);
-      if (coefficient == null || Math.abs(coefficient) <= MIN_ABS_CORRELATION) continue;
+      if (coefficient == null || Math.abs(coefficient) <= MIN_ABS_CORRELATION)
+        continue;
 
       const effectPercent = relativeEffectPercent(points);
       if (!Number.isFinite(effectPercent)) continue;
@@ -107,20 +110,34 @@ export function computeCorrelationPatterns(input: CorrelationInput): Correlation
   }
 
   return patterns
-    .sort((a, b) => Math.abs(b.coefficient) - Math.abs(a.coefficient) || b.sampleSize - a.sampleSize)
+    .sort(
+      (a, b) =>
+        Math.abs(b.coefficient) - Math.abs(a.coefficient) ||
+        b.sampleSize - a.sampleSize,
+    )
     .slice(0, 3);
 }
 
 function buildMetricPairs(input: CorrelationInput): MetricPair[] {
   const sleepHours = averageByDate(input.sleep, 'logDate', 'hours');
-  const nextDayMood = shiftSeries(scoreByDate(input.journals, 'entryDate', (row) => moodScores[String(row.mood)]), -1);
+  const nextDayMood = shiftSeries(
+    scoreByDate(
+      input.journals,
+      'entryDate',
+      (row) => moodScores[String(row.mood)],
+    ),
+    -1,
+  );
   const goalCompletion = dailyGoalCompletion(input.dailyGoals);
   const nextDayGoalCompletion = shiftSeries(goalCompletion, -1);
   const protein = averageByDate(input.diet, 'logDate', 'protein');
   const nextWeightChange = nextLoggedWeightChange(input.weights);
   const studyMinutes = sumByDate(input.sessions, 'logDate', 'minutes');
   const habitStreak = habitStreakByDate(input.habits, input.today);
-  const nextDayRoutineCompletion = shiftSeries(routineCompletionByDate(input.routineDayLogs ?? []), -1);
+  const nextDayRoutineCompletion = shiftSeries(
+    routineCompletionByDate(input.routineDayLogs ?? []),
+    -1,
+  );
 
   return [
     {
@@ -176,7 +193,12 @@ function buildMetricPairs(input: CorrelationInput): MetricPair[] {
   ];
 }
 
-function overlappingPoints(x: Map<string, number>, y: Map<string, number>, start: Date, end: Date) {
+function overlappingPoints(
+  x: Map<string, number>,
+  y: Map<string, number>,
+  start: Date,
+  end: Date,
+) {
   const points: { x: number; y: number }[] = [];
   for (const [date, xValue] of x) {
     const current = parseDate(date);
@@ -210,17 +232,31 @@ function dailyGoalCompletion(rows: Row[]) {
     current.completed += row.completed ? 1 : 0;
     grouped.set(date, current);
   }
-  return new Map([...grouped].map(([date, value]) => [date, value.total ? value.completed / value.total : 0]));
+  return new Map(
+    [...grouped].map(([date, value]) => [
+      date,
+      value.total ? value.completed / value.total : 0,
+    ]),
+  );
 }
 
 function nextLoggedWeightChange(rows: Row[]) {
   const sorted = rows
-    .map((row) => ({ date: dateKey(row.logDate), weight: toNumber(row.weight) }))
-    .filter((row): row is { date: string; weight: number } => Boolean(row.date) && row.weight != null)
+    .map((row) => ({
+      date: dateKey(row.logDate),
+      weight: toNumber(row.weight),
+    }))
+    .filter(
+      (row): row is { date: string; weight: number } =>
+        Boolean(row.date) && row.weight != null,
+    )
     .sort((a, b) => a.date.localeCompare(b.date));
   const result = new Map<string, number>();
   for (let index = 0; index < sorted.length - 1; index += 1) {
-    result.set(sorted[index].date, sorted[index + 1].weight - sorted[index].weight);
+    result.set(
+      sorted[index].date,
+      sorted[index + 1].weight - sorted[index].weight,
+    );
   }
   return result;
 }
@@ -251,14 +287,28 @@ function routineCompletionByDate(rows: Row[]) {
 }
 
 function averageByDate(rows: Row[], dateField: string, valueField: string) {
-  return aggregateByDate(rows, dateField, (row) => toNumber(row[valueField]), average);
+  return aggregateByDate(
+    rows,
+    dateField,
+    (row) => toNumber(row[valueField]),
+    average,
+  );
 }
 
 function sumByDate(rows: Row[], dateField: string, valueField: string) {
-  return aggregateByDate(rows, dateField, (row) => toNumber(row[valueField]), (values) => values.reduce((sum, value) => sum + value, 0));
+  return aggregateByDate(
+    rows,
+    dateField,
+    (row) => toNumber(row[valueField]),
+    (values) => values.reduce((sum, value) => sum + value, 0),
+  );
 }
 
-function scoreByDate(rows: Row[], dateField: string, scorer: (row: Row) => number | undefined) {
+function scoreByDate(
+  rows: Row[],
+  dateField: string,
+  scorer: (row: Row) => number | undefined,
+) {
   return aggregateByDate(rows, dateField, scorer, average);
 }
 
@@ -275,19 +325,32 @@ function aggregateByDate(
     if (!date || value == null || !Number.isFinite(value)) continue;
     grouped.set(date, [...(grouped.get(date) ?? []), value]);
   }
-  return new Map([...grouped].map(([date, values]) => [date, aggregate(values)]));
+  return new Map(
+    [...grouped].map(([date, values]) => [date, aggregate(values)]),
+  );
 }
 
 function shiftSeries(series: Map<string, number>, days: number) {
-  return new Map([...series].map(([date, value]) => [dateKey(addDays(parseDate(date), days))!, value]));
+  return new Map(
+    [...series].map(([date, value]) => [
+      dateKey(addDays(parseDate(date), days))!,
+      value,
+    ]),
+  );
 }
 
-function directionPhrase(coefficient: number, positive: string, negative: string) {
+function directionPhrase(
+  coefficient: number,
+  positive: string,
+  negative: string,
+) {
   return coefficient >= 0 ? positive : negative;
 }
 
 function average(values: number[]) {
-  return values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : 0;
+  return values.length
+    ? values.reduce((sum, value) => sum + value, 0) / values.length
+    : 0;
 }
 
 function dateKey(value: unknown) {
@@ -296,8 +359,15 @@ function dateKey(value: unknown) {
 }
 
 function parseDate(value: string | Date) {
-  const parsed = typeof value === 'string' ? new Date(`${value}T00:00:00.000Z`) : value;
-  return new Date(Date.UTC(parsed.getUTCFullYear(), parsed.getUTCMonth(), parsed.getUTCDate()));
+  const parsed =
+    typeof value === 'string' ? new Date(`${value}T00:00:00.000Z`) : value;
+  return new Date(
+    Date.UTC(
+      parsed.getUTCFullYear(),
+      parsed.getUTCMonth(),
+      parsed.getUTCDate(),
+    ),
+  );
 }
 
 function parseOptionalDate(value: unknown) {

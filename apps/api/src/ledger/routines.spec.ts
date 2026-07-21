@@ -9,13 +9,61 @@ describe('routine auto-check evaluation', () => {
       timeAnchor: 'morning',
       linkedGoalId: 'goal-life',
       steps: [
-        { id: 'step-habit', routineId: 'routine-1', orderIndex: 0, stepName: 'Meditate', stepType: 'habit', linkedHabitId: 'habit-1' },
-        { id: 'step-daily', routineId: 'routine-1', orderIndex: 1, stepName: 'Daily goal', stepType: 'daily_goal', linkedDailyGoalId: 'goal-daily' },
-        { id: 'step-weekly', routineId: 'routine-1', orderIndex: 2, stepName: 'Weekly goal', stepType: 'weekly_goal', linkedWeeklyGoalId: 'goal-weekly' },
-        { id: 'step-learning', routineId: 'routine-1', orderIndex: 3, stepName: 'Study', stepType: 'learning', linkedSkillId: 'skill-1' },
-        { id: 'step-finance', routineId: 'routine-1', orderIndex: 4, stepName: 'Log expense', stepType: 'finance', linkedFinanceAction: 'expense' },
-        { id: 'step-journal', routineId: 'routine-1', orderIndex: 5, stepName: 'Journal', stepType: 'journal', linkedJournal: 'today' },
-        { id: 'step-standalone', routineId: 'routine-1', orderIndex: 6, stepName: 'Pack bag', stepType: 'standalone' },
+        {
+          id: 'step-habit',
+          routineId: 'routine-1',
+          orderIndex: 0,
+          stepName: 'Meditate',
+          stepType: 'habit',
+          linkedHabitId: 'habit-1',
+        },
+        {
+          id: 'step-daily',
+          routineId: 'routine-1',
+          orderIndex: 1,
+          stepName: 'Daily goal',
+          stepType: 'daily_goal',
+          linkedDailyGoalId: 'goal-daily',
+        },
+        {
+          id: 'step-weekly',
+          routineId: 'routine-1',
+          orderIndex: 2,
+          stepName: 'Weekly goal',
+          stepType: 'weekly_goal',
+          linkedWeeklyGoalId: 'goal-weekly',
+        },
+        {
+          id: 'step-learning',
+          routineId: 'routine-1',
+          orderIndex: 3,
+          stepName: 'Study',
+          stepType: 'learning',
+          linkedSkillId: 'skill-1',
+        },
+        {
+          id: 'step-finance',
+          routineId: 'routine-1',
+          orderIndex: 4,
+          stepName: 'Log expense',
+          stepType: 'finance',
+          linkedFinanceAction: 'expense',
+        },
+        {
+          id: 'step-journal',
+          routineId: 'routine-1',
+          orderIndex: 5,
+          stepName: 'Journal',
+          stepType: 'journal',
+          linkedJournal: 'today',
+        },
+        {
+          id: 'step-standalone',
+          routineId: 'routine-1',
+          orderIndex: 6,
+          stepName: 'Pack bag',
+          stepType: 'standalone',
+        },
       ],
     };
 
@@ -27,15 +75,43 @@ describe('routine auto-check evaluation', () => {
         { id: 'goal-weekly', level: 'weekly', completed: true },
       ],
       habits: [{ id: 'habit-1', lastCheckin: currentDate }],
-      sessions: [{ id: 'session-1', skillId: 'skill-1', logDate: currentDate, minutes: 30 }],
+      sessions: [
+        {
+          id: 'session-1',
+          skillId: 'skill-1',
+          logDate: currentDate,
+          minutes: 30,
+        },
+      ],
       financeMonths: [],
-      transactions: [{ id: 'transaction-1', transactionDate: currentDate, type: 'expense', amount: 20 }],
+      transactions: [
+        {
+          id: 'transaction-1',
+          transactionDate: currentDate,
+          type: 'expense',
+          amount: 20,
+        },
+      ],
       debtPayments: [],
-      journal: { id: 'journal-1', entryDate: currentDate, body: 'A real entry.' },
-      standaloneCompletions: [{ routineStepId: 'step-standalone', completedOn: currentDate }],
+      journal: {
+        id: 'journal-1',
+        entryDate: currentDate,
+        body: 'A real entry.',
+      },
+      standaloneCompletions: [
+        { routineStepId: 'step-standalone', completedOn: currentDate },
+      ],
       routineDayLogs: [
-        { routineId: 'routine-1', logDate: new Date('2026-07-13T00:00:00.000Z'), status: 'done' },
-        { routineId: 'routine-1', logDate: new Date('2026-07-14T00:00:00.000Z'), status: 'done' },
+        {
+          routineId: 'routine-1',
+          logDate: new Date('2026-07-13T00:00:00.000Z'),
+          status: 'done',
+        },
+        {
+          routineId: 'routine-1',
+          logDate: new Date('2026-07-14T00:00:00.000Z'),
+          status: 'done',
+        },
       ],
     });
 
@@ -51,10 +127,8 @@ describe('routine auto-check evaluation', () => {
       ['step-journal', true],
       ['step-standalone', true],
     ]);
-    expect(status.steps.filter((step) => step.readOnly).map((step) => step.id)).toEqual([
-      'step-learning',
-      'step-finance',
-      'step-journal',
-    ]);
+    expect(
+      status.steps.filter((step) => step.readOnly).map((step) => step.id),
+    ).toEqual(['step-learning', 'step-finance', 'step-journal']);
   });
 });

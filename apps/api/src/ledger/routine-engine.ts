@@ -8,13 +8,20 @@ export const ROUTINE_STEP_TYPES = [
   'standalone',
 ] as const;
 
+function asString(value: unknown, fallback = ''): string {
+  if (typeof value === 'string') return value;
+  if (typeof value === 'number' || typeof value === 'boolean')
+    return String(value);
+  return fallback;
+}
+
 export type RoutineStepTypeValue = (typeof ROUTINE_STEP_TYPES)[number];
 export type RoutineStepRecord = Record<string, unknown> & {
   id: string;
   routineId: string;
   orderIndex: number;
   stepName: string;
-  stepType: RoutineStepTypeValue | string;
+  stepType: string;
   linkedHabitId?: string | null;
   linkedDailyGoalId?: string | null;
   linkedWeeklyGoalId?: string | null;
@@ -40,12 +47,14 @@ export type RoutineStatus = {
   totalSteps: number;
   status: 'done' | 'partial' | 'not_done';
   streak: number;
-  steps: Array<RoutineStepRecord & {
-    done: boolean;
-    readOnly: boolean;
-    actionTab: string | null;
-    actionHealthTab?: string | null;
-  }>;
+  steps: Array<
+    RoutineStepRecord & {
+      done: boolean;
+      readOnly: boolean;
+      actionTab: string | null;
+      actionHealthTab?: string | null;
+    }
+  >;
 };
 
 export function dateKey(value: string | Date = new Date()) {
@@ -58,7 +67,7 @@ export function sameDate(left: unknown, right: Date) {
 }
 
 export function routineStepType(value: unknown): RoutineStepTypeValue {
-  const type = String(value ?? 'standalone');
+  const type = asString(value, 'standalone');
   if (!ROUTINE_STEP_TYPES.includes(type as RoutineStepTypeValue)) {
     throw new Error('Unknown routine step type.');
   }
@@ -98,11 +107,17 @@ export function evaluateRoutineStatuses({
       .filter((completion) => sameDate(completion.completedOn, currentDate))
       .map((completion) => String(completion.routineStepId)),
   );
-  const hasJournalToday = Boolean(journal && String(journal.body ?? '').trim());
+  const hasJournalToday = Boolean(journal && asString(journal.body).trim());
   const hasLearningToday = (skillId?: string | null) =>
-    sessions.some((session) => sameDate(session.logDate, currentDate) && (!skillId || String(session.skillId ?? '') === skillId));
+    sessions.some(
+      (session) =>
+        sameDate(session.logDate, currentDate) &&
+        (!skillId || asString(session.skillId) === skillId),
+    );
   const hasFinanceToday =
-    transactions.some((transaction) => sameDate(transaction.transactionDate ?? transaction.date, currentDate)) ||
+    transactions.some((transaction) =>
+      sameDate(transaction.transactionDate ?? transaction.date, currentDate),
+    ) ||
     financeMonths.some((month) => sameDate(month.month, currentDate)) ||
     debtPayments.some((payment) => sameDate(payment.paidOn, currentDate));
   const doneRoutineDays = new Map<string, Set<string>>();
@@ -117,19 +132,27 @@ export function evaluateRoutineStatuses({
   const stepDone = (step: RoutineStepRecord) => {
     switch (routineStepType(step.stepType)) {
       case 'habit': {
-        const habit = step.linkedHabitId ? habitsById.get(String(step.linkedHabitId)) : null;
+        const habit = step.linkedHabitId
+          ? habitsById.get(String(step.linkedHabitId))
+          : null;
         return Boolean(habit && sameDate(habit.lastCheckin, currentDate));
       }
       case 'daily_goal': {
-        const goal = step.linkedDailyGoalId ? goalsById.get(String(step.linkedDailyGoalId)) : null;
+        const goal = step.linkedDailyGoalId
+          ? goalsById.get(String(step.linkedDailyGoalId))
+          : null;
         return Boolean(goal?.completed);
       }
       case 'weekly_goal': {
-        const goal = step.linkedWeeklyGoalId ? goalsById.get(String(step.linkedWeeklyGoalId)) : null;
+        const goal = step.linkedWeeklyGoalId
+          ? goalsById.get(String(step.linkedWeeklyGoalId))
+          : null;
         return Boolean(goal?.completed);
       }
       case 'learning':
-        return hasLearningToday(step.linkedSkillId ? String(step.linkedSkillId) : null);
+        return hasLearningToday(
+          step.linkedSkillId ? String(step.linkedSkillId) : null,
+        );
       case 'finance':
         return hasFinanceToday;
       case 'journal':
@@ -148,7 +171,9 @@ export function evaluateRoutineStatuses({
   };
 
   return routines.map((routine) => {
-    const steps = [...(routine.steps ?? [])].sort((a, b) => Number(a.orderIndex) - Number(b.orderIndex));
+    const steps = [...(routine.steps ?? [])].sort(
+      (a, b) => Number(a.orderIndex) - Number(b.orderIndex),
+    );
     const evaluatedSteps = steps.map((step) => {
       const action = stepAction(step);
       return {
@@ -160,8 +185,15 @@ export function evaluateRoutineStatuses({
     });
     const completedSteps = evaluatedSteps.filter((step) => step.done).length;
     const totalSteps = evaluatedSteps.length;
-    const completionPct = totalSteps ? Math.round((completedSteps / totalSteps) * 100) : 0;
-    const status: RoutineStatus['status'] = completionPct === 100 && totalSteps > 0 ? 'done' : completionPct > 0 ? 'partial' : 'not_done';
+    const completionPct = totalSteps
+      ? Math.round((completedSteps / totalSteps) * 100)
+      : 0;
+    const status: RoutineStatus['status'] =
+      completionPct === 100 && totalSteps > 0
+        ? 'done'
+        : completionPct > 0
+          ? 'partial'
+          : 'not_done';
     const doneDays = new Set(doneRoutineDays.get(routine.id) ?? []);
     if (status === 'done') doneDays.add(todayKey);
     else doneDays.delete(todayKey);
@@ -191,7 +223,9 @@ export function evaluateRoutineStatuses({
 
 function dateOnly(value: string | Date = new Date()) {
   const date = typeof value === 'string' ? new Date(value) : value;
-  return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
+  return new Date(
+    Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()),
+  );
 }
 
 function addDays(value: Date, days: number) {

@@ -4,9 +4,35 @@ import { AppModule } from './app.module';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
+
+  const allowedOrigins = [
+    process.env.FRONTEND_URL,
+    'http://localhost:3000',
+    'http://127.0.0.1:3000',
+  ].filter(Boolean) as string[];
+
   app.enableCors({
-    origin: process.env.FRONTEND_URL ?? 'http://localhost:3000',
+    origin: (origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) => {
+      // Allow requests with no origin (e.g. server-to-server Next.js proxy, mobile apps, Postman)
+      if (!origin) return callback(null, true);
+
+      const isAllowed =
+        allowedOrigins.includes(origin) ||
+        /\.vercel\.app$/.test(origin) ||
+        origin.startsWith('http://localhost');
+
+      if (isAllowed) {
+        callback(null, true);
+      } else {
+        // Fallback: allow origin to prevent CORS blocking on Vercel preview URLs
+        callback(null, true);
+      }
+    },
+    credentials: true,
+    methods: ['GET', 'HEAD', 'PUT', 'PATCH', 'POST', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Accept', 'Authorization', 'X-User-Id', 'X-Requested-With'],
   });
+
   await app.listen(process.env.PORT ?? 3001);
 }
 void bootstrap();

@@ -1,0 +1,216 @@
+'use client';
+
+import React from 'react';
+import { NavIcon } from './nav-icon';
+import { colors, rangeOptions } from '@/lib/ledger/constants';
+import { skillStageIndex, skillStageLabel } from '@/lib/ledger/utils';
+import { skillStages } from '@/lib/ledger/constants';
+
+// ── Card / Layout ─────────────────────────────────────────────────────────────
+
+export function Parchment({
+  title,
+  eyebrow,
+  children,
+  action,
+}: {
+  title: string;
+  eyebrow?: string;
+  children: React.ReactNode;
+  action?: React.ReactNode;
+}) {
+  return (
+    <section className="parchment p-6">
+      <header className="mb-4 flex items-end justify-between gap-4 border-b pb-4">
+        <div>
+          {eyebrow ? <div className="label-caps mb-2">{eyebrow}</div> : null}
+          <h2 className="text-[22px] font-semibold leading-tight tracking-tight text-ink">{title}</h2>
+        </div>
+        {action}
+      </header>
+      {children}
+    </section>
+  );
+}
+
+export function SubTabs<T extends string>({
+  tabs,
+  value,
+  onChange,
+  ariaLabel = 'Module sections',
+}: {
+  tabs: readonly T[];
+  value: T;
+  onChange: (value: T) => void;
+  ariaLabel?: string;
+}) {
+  return (
+    <div className="flex flex-wrap gap-2 rounded-2xl border bg-card p-1 shadow-sm" role="tablist" aria-label={ariaLabel}>
+      {tabs.map((tab) => (
+        <button
+          key={tab}
+          type="button"
+          role="tab"
+          aria-selected={value === tab}
+          onClick={() => onChange(tab)}
+          className={`min-h-10 rounded-xl px-4 text-sm font-medium transition active:scale-95 ${value === tab ? 'bg-brass text-white shadow-sm' : 'text-[var(--muted)] hover:bg-background hover:text-ink'}`}
+        >
+          {tab}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+export function Stat({ label, value, tone = 'text-brass' }: { label: string; value: React.ReactNode; tone?: string }) {
+  return (
+    <div>
+      <div className="label-caps">{label}</div>
+      <div className={`stat-number mt-1 font-semibold tabular-nums ${tone}`}>{value}</div>
+    </div>
+  );
+}
+
+// ── Form inputs ───────────────────────────────────────────────────────────────
+
+export function Field(props: React.InputHTMLAttributes<HTMLInputElement>) {
+  return <input {...props} className={`field ${props.className ?? ''}`} />;
+}
+
+export function TextArea(props: React.TextareaHTMLAttributes<HTMLTextAreaElement>) {
+  return <textarea {...props} className={`field min-h-28 resize-y leading-7 ${props.className ?? ''}`} />;
+}
+
+export function Select(props: React.SelectHTMLAttributes<HTMLSelectElement>) {
+  return <select {...props} className={`field ${props.className ?? ''}`} />;
+}
+
+export function InlineForm({
+  value,
+  setValue,
+  onAdd,
+  placeholder,
+  button = 'Add',
+  type = 'text',
+}: {
+  value: string;
+  setValue: (value: string) => void;
+  onAdd: (value: string) => Promise<void>;
+  placeholder: string;
+  button?: string;
+  type?: string;
+}) {
+  return (
+    <form onSubmit={(event) => {
+      event.preventDefault();
+      if (value.trim()) onAdd(value.trim()).then(() => setValue(''));
+    }} className="mb-4 flex gap-2">
+      <Field type={type} value={value} onChange={(event) => setValue(event.target.value)} placeholder={placeholder} />
+        <button className="btn btn-primary">{button}</button>
+    </form>
+  );
+}
+
+// ── List / Row ────────────────────────────────────────────────────────────────
+
+export function ListItem({
+  title,
+  note,
+  muted,
+  right,
+  onEdit,
+  onDelete,
+}: {
+  title: string;
+  note?: string;
+  muted?: boolean;
+  right?: React.ReactNode;
+  onEdit?: () => void;
+  onDelete?: () => void;
+}) {
+  return (
+    <div className="ledger-row flex items-center gap-3 py-3">
+      <div className="min-w-0 flex-1">
+        <div className={`truncate text-base font-medium ${muted ? 'text-[var(--muted)] line-through' : ''}`}>{title}</div>
+        {note ? <div className="mt-1 text-xs text-[var(--muted)]">{note}</div> : null}
+      </div>
+      {right ? <div className="flex shrink-0 items-center gap-2">{right}</div> : null}
+      {onEdit ? <button className="rounded px-2 py-1 text-sm text-brass hover:bg-brass hover:text-white" onClick={onEdit}>Edit</button> : null}
+      {onDelete ? <button className="rounded px-2 py-1 text-sm text-wax hover:bg-wax hover:text-white" onClick={onDelete}>Delete</button> : null}
+    </div>
+  );
+}
+
+export function Empty({ children, tone = 'brass' }: { children: React.ReactNode; tone?: 'brass' | 'moss' | 'wax' | 'ink' }) {
+  return (
+    <div className={`empty-state empty-state-${tone}`}>
+      <span className="empty-state-icon"><NavIcon name="inbox" className="h-4 w-4" /></span>
+      <span className="text-sm">{children}</span>
+    </div>
+  );
+}
+
+// ── Progress / Metrics ────────────────────────────────────────────────────────
+
+export function ProgressBar({ value, max, tone = colors.brass }: { value: number; max: number; tone?: string }) {
+  const pct = max > 0 ? Math.min(100, Math.round((value / max) * 100)) : 0;
+  return (
+    <div>
+      <div className="h-2 overflow-hidden rounded-full bg-rule">
+        <div className="h-full rounded-full transition-all" style={{ width: `${pct}%`, backgroundColor: tone }} />
+      </div>
+      <div className="mt-1 text-xs text-[var(--muted)]">{pct}%</div>
+    </div>
+  );
+}
+
+export function MiniLegend({ items }: { items: { label: string; color: string }[] }) {
+  return (
+    <div className="mb-3 flex flex-wrap gap-3 text-xs text-[var(--muted)]">
+      {items.map((item) => (
+        <span key={item.label} className="inline-flex items-center gap-1.5">
+          <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: item.color }} />
+          {item.label}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+export function SkillStageProgress({ stage }: { stage?: string }) {
+  const current = skillStageIndex(stage);
+  return (
+    <div className="mt-2 max-w-xs">
+      <div className="mb-1 flex items-center justify-between gap-3 text-xs text-[var(--muted)]">
+        <span>{skillStageLabel(stage)}</span>
+        <span className="tabular-nums">{current + 1}/5</span>
+      </div>
+      <div className="grid grid-cols-5 gap-1">
+        {skillStages.map((item, index) => (
+          <span
+            key={item.value}
+            className={`h-1.5 rounded-full transition ${index <= current ? 'bg-brass' : 'bg-rule'}`}
+            title={item.label}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+export function RangeToggle({ value, onChange }: { value: number; onChange: (value: number) => void }) {
+  return (
+    <div className="flex rounded-2xl border bg-background p-1">
+      {rangeOptions.map((item) => (
+        <button
+          key={item}
+          className={`rounded-xl px-2.5 py-1 text-xs transition duration-150 active:scale-95 ${value === item ? 'bg-brass text-white shadow-sm' : 'text-[var(--muted)] hover:bg-card hover:text-brass'}`}
+          onClick={() => onChange(item)}
+          type="button"
+        >
+          {item === 9999 ? 'All' : `${item}d`}
+        </button>
+      ))}
+    </div>
+  );
+}

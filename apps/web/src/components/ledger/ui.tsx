@@ -99,7 +99,7 @@ export function InlineForm({
 }: {
   value: string;
   setValue: (value: string) => void;
-  onAdd: (value: string) => Promise<void>;
+  onAdd: (value: string) => Promise<unknown>;
   placeholder: string;
   button?: string;
   type?: string;

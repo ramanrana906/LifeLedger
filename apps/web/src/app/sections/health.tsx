@@ -8,7 +8,7 @@ import { dateKey, daysBack, filterRange, submit, ask } from '@/lib/ledger/utils'
 import { Parchment, SubTabs, Stat, Field, Select, InlineForm, ListItem, Empty, MiniLegend, RangeToggle } from '@/components/ledger/ui';
 import { SvgCanvasTrendChart, ChartTooltip, ChartBox, Heatmap, ChartPlaceholder, AxisLabel } from '@/components/ledger/charts';
 
-type ActionFn = (type: string, payload?: Row) => Promise<void>;
+type ActionFn = (type: string, payload?: Row) => Promise<boolean>;
 
 export function Health({ data, action }: { data: Dashboard; action: ActionFn }) {
   const healthTabs = ['Weight', 'Diet', 'Workouts', 'Sleep'] as const;

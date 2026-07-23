@@ -33,12 +33,12 @@ import { PatternsPanel } from './review';
 import { ask } from '@/lib/ledger/utils';
 import { EntityConnections } from '@/components/ledger/entity-connections';
 
-type ActionFn = (type: string, payload?: Row) => Promise<void>;
+type ActionFn = (type: string, payload?: Row) => Promise<boolean>;
 
 export function Today({ data, action, saving }: { data: Dashboard; action: ActionFn; saving: boolean }) {
   const [mood, setMood] = useState(data.journal?.mood ?? 'Steady');
   const [body, setBody] = useState(data.journal?.body ?? '');
-  const [expandedJournalId, setExpandedJournalId] = useState('');
+  const [focusedJournalId, setFocusedJournalId] = useState('');
   const [dismissedLinkSuggestions, setDismissedLinkSuggestions] = useState<Set<string>>(dismissedLinkSuggestionKeys);
   const [goal, setGoal] = useState('');
   const xpToNext = Math.max((data.stats?.level ?? 1) * 100, 100);
@@ -53,7 +53,7 @@ export function Today({ data, action, saving }: { data: Dashboard; action: Actio
 
   const suggestedLearningLinks = (data.linkSuggestions?.journalLearning ?? []).filter((suggestion) => !dismissedLinkSuggestions.has(`journal:${suggestion.journalEntryId}:${suggestion.skillId}`));
 
-  const pendingJournalTarget = typeof window === 'undefined' ? null : data.journalEntries.find((item) => String(item.id) === expandedJournalId);
+  const pendingJournalTarget = typeof window === 'undefined' ? null : data.journalEntries.find((item) => String(item.id) === focusedJournalId);
   const journalHistory = [...data.journalEntries]
     .filter((item) => String(item.id) !== String(data.journal?.id ?? ''))
     .reverse()
@@ -67,7 +67,7 @@ export function Today({ data, action, saving }: { data: Dashboard; action: Actio
       listenForEntityNavigation((target) => {
         if (target.entityType !== 'journal_entry') return;
         if (!data.journalEntries.some((item) => String(item.id) === target.entityId)) return;
-        setExpandedJournalId(target.entityId);
+        setFocusedJournalId(target.entityId);
         focusEntityInView(target);
       }),
     [data.journalEntries],
@@ -178,6 +178,7 @@ export function Today({ data, action, saving }: { data: Dashboard; action: Actio
             month: 'long',
             day: 'numeric',
           })}
+          action={data.journal?.id ? <EntityConnections data={data} entityType="journal_entry" entityId={String(data.journal.id)} action={action} /> : undefined}
         >
           <div className="flex flex-wrap gap-2">
             {moods.map((item) => (
@@ -213,13 +214,11 @@ export function Today({ data, action, saving }: { data: Dashboard; action: Actio
               </button>
             </div>
           </div>
-          {data.journal?.id ? (
-            <EntityConnections data={data} entityType="journal_entry" entityId={String(data.journal.id)} action={action} />
-          ) : (
+          {!data.journal?.id ? (
             <div className="mt-4 rounded-xl border border-dashed bg-background/60 px-3 py-2 text-xs text-[var(--muted)]">
               Save the entry once, then use Connections to link it to any goal, habit, routine, skill, or finance record.
             </div>
-          )}
+          ) : null}
         </Parchment>
       </div>
 
@@ -281,15 +280,7 @@ export function Today({ data, action, saving }: { data: Dashboard; action: Actio
               <ListItem
                 title={`${item.entryDate} · ${item.mood}`}
                 note={String(item.body ?? '').slice(0, 120)}
-                right={
-                  <button
-                    type="button"
-                    className="rounded px-2 py-1 text-xs font-medium text-brass hover:bg-brass hover:text-white"
-                    onClick={() => setExpandedJournalId(expandedJournalId === String(item.id) ? '' : String(item.id))}
-                  >
-                    {expandedJournalId === String(item.id) ? 'Hide connections' : 'Connections'}
-                  </button>
-                }
+                right={<EntityConnections data={data} entityType="journal_entry" entityId={String(item.id)} action={action} compact />}
                 onEdit={() => {
                   const nextBody = ask('Edit journal entry', item.body);
                   if (nextBody != null)
@@ -306,7 +297,6 @@ export function Today({ data, action, saving }: { data: Dashboard; action: Actio
                   })
                 }
               />
-              {expandedJournalId === String(item.id) ? <EntityConnections data={data} entityType="journal_entry" entityId={String(item.id)} action={action} compact /> : null}
             </div>
           ))}
         </Parchment>
@@ -336,9 +326,12 @@ export function Today({ data, action, saving }: { data: Dashboard; action: Actio
               title={item.title}
               muted={item.completed}
               right={
-                <button className={`btn ${item.completed ? 'check-pop border-moss bg-moss text-white' : ''}`} onClick={() => action('goal.toggle', { id: item.id })}>
-                  {item.completed ? 'Undo' : 'Done'}
-                </button>
+                <div className="flex items-center gap-2">
+                  <EntityConnections data={data} entityType="goal" entityId={String(item.id)} action={action} compact />
+                  <button className={`btn ${item.completed ? 'check-pop border-moss bg-moss text-white' : ''}`} onClick={() => action('goal.toggle', { id: item.id })}>
+                    {item.completed ? 'Undo' : 'Done'}
+                  </button>
+                </div>
               }
               onEdit={() => {
                 const title = ask('Edit daily goal', item.title);
@@ -390,7 +383,10 @@ function TodayRoutines({ data, action }: { data: Dashboard; action: ActionFn }) 
                   {routine.completedSteps}/{routine.totalSteps} steps · {routine.streak ?? 0}d routine streak
                 </div>
               </div>
-              <strong className="text-lg tabular-nums text-brass">{routine.completionPct}%</strong>
+              <div className="flex items-center gap-2">
+                <EntityConnections data={data} entityType="routine" entityId={String(routine.id)} action={action} compact />
+                <strong className="text-lg tabular-nums text-brass">{routine.completionPct}%</strong>
+              </div>
             </div>
             <ProgressBar value={Number(routine.completionPct ?? 0)} max={100} tone={routine.completionPct === 100 ? colors.moss : colors.brass} />
             <div className="mt-4 space-y-2">

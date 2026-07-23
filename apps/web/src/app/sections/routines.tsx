@@ -8,7 +8,7 @@ import { Parchment, Stat, Field, Select, ProgressBar, Empty } from '@/components
 import { EntityConnections } from '@/components/ledger/entity-connections';
 import { LinkToPicker } from '@/components/ledger/link-to-picker';
 
-type ActionFn = (type: string, payload?: Row) => Promise<void>;
+type ActionFn = (type: string, payload?: Row) => Promise<boolean>;
 
 const routineStepTypes = ['habit', 'daily_goal', 'weekly_goal', 'learning', 'finance', 'journal', 'standalone'] as const;
 
@@ -150,7 +150,8 @@ export function Routines({ data, action }: { data: Dashboard; action: ActionFn }
           title={String(selectedRoutine.name)}
           eyebrow={`${routineAnchorLabel(String(selectedRoutine.timeAnchor ?? ''))} routine`}
           action={
-            <div className="flex gap-2">
+            <div className="flex flex-wrap justify-end gap-2">
+              <EntityConnections data={data} entityType="routine" entityId={String(selectedRoutine.id)} action={action} />
               <button
                 type="button"
                 className="btn"
@@ -284,7 +285,7 @@ export function Routines({ data, action }: { data: Dashboard; action: ActionFn }
                 const targetLabel = routineStepTargetLabel(data, item);
                 return (
                   <div id={entityDomId('routine_step', String(item.id))} key={item.id} className="ledger-row py-3 transition">
-                    <div className="flex items-center gap-3">
+                    <div className="flex flex-wrap items-center gap-3">
                       <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-xl bg-brass/10 text-xs font-semibold tabular-nums text-brass">{index + 1}</div>
                       <div className="min-w-0 flex-1">
                         <div className="font-medium text-ink">{item.stepName}</div>
@@ -319,6 +320,7 @@ export function Routines({ data, action }: { data: Dashboard; action: ActionFn }
                       >
                         Down
                       </button>
+                      <EntityConnections data={data} entityType="routine_step" entityId={String(item.id)} action={action} compact />
                       <button
                         className="rounded px-2 py-1 text-sm text-brass hover:bg-brass hover:text-white"
                         onClick={() => {
@@ -349,13 +351,10 @@ export function Routines({ data, action }: { data: Dashboard; action: ActionFn }
                         Delete
                       </button>
                     </div>
-                    <EntityConnections data={data} entityType="routine_step" entityId={String(item.id)} action={action} compact />
                   </div>
                 );
               })}
           </div>
-
-          <EntityConnections data={data} entityType="routine" entityId={String(selectedRoutine.id)} action={action} />
 
           <div className="mt-6 border-t pt-5">
             <div className="label-caps mb-3">Recent history</div>

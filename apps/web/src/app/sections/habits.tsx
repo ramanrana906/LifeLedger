@@ -8,7 +8,7 @@ import { Parchment, SubTabs, Field, TextArea, Select, ProgressBar, Empty } from 
 import { Heatmap } from '@/components/ledger/charts';
 import { EntityConnections } from '@/components/ledger/entity-connections';
 
-type ActionFn = (type: string, payload?: Row) => Promise<void>;
+type ActionFn = (type: string, payload?: Row) => Promise<boolean>;
 
 export function Habits({ data, action }: { data: Dashboard; action: ActionFn }) {
   const habitTabs = ['Building', 'Breaking'] as const;
@@ -81,7 +81,7 @@ export function Habits({ data, action }: { data: Dashboard; action: ActionFn }) 
               }));
               return (
                 <div id={entityDomId('habit', String(item.id))} key={item.id} className="ledger-row pb-5 transition">
-                  <div className="mb-3 flex items-center gap-3">
+                  <div className="mb-3 flex flex-wrap items-center gap-3">
                     <div className="min-w-0 flex-1">
                       {item.whyThisMatters ? (
                         <button
@@ -98,6 +98,7 @@ export function Habits({ data, action }: { data: Dashboard; action: ActionFn }) 
                       </div>
                     </div>
                     <strong className="text-brass">{item.currentStreak}d</strong>
+                    <EntityConnections data={data} entityType="habit" entityId={String(item.id)} action={action} compact />
                     <button
                       className="rounded px-2 py-1 text-sm text-brass hover:bg-brass hover:text-white"
                       onClick={() => {
@@ -129,7 +130,6 @@ export function Habits({ data, action }: { data: Dashboard; action: ActionFn }) 
                     </div>
                   ) : null}
                   <Heatmap days={heat} compact />
-                  <EntityConnections data={data} entityType="habit" entityId={String(item.id)} action={action} />
                 </div>
               );
             })}
@@ -145,7 +145,7 @@ export function Habits({ data, action }: { data: Dashboard; action: ActionFn }) 
             const best = Math.max(clean, Number(item.longestStreak) || 1);
             return (
               <div id={entityDomId('habit', String(item.id))} key={item.id} className="ledger-row py-4 transition">
-                <div className="mb-3 flex items-center gap-3">
+                <div className="mb-3 flex flex-wrap items-center gap-3">
                   <div className="min-w-0 flex-1">
                     {item.whyThisMatters ? (
                       <button
@@ -160,6 +160,7 @@ export function Habits({ data, action }: { data: Dashboard; action: ActionFn }) 
                     <div className="text-xs text-[var(--muted)]">Last slip {item.lastSlip ?? '-'}</div>
                   </div>
                   <strong className="text-moss">{clean}d</strong>
+                  <EntityConnections data={data} entityType="habit" entityId={String(item.id)} action={action} compact />
                   <button
                     className="rounded px-2 py-1 text-sm text-brass hover:bg-brass hover:text-white"
                     onClick={() => {
@@ -192,7 +193,6 @@ export function Habits({ data, action }: { data: Dashboard; action: ActionFn }) 
                 ) : null}
                 <ProgressBar value={clean} max={best} tone={colors.moss} />
                 <div className="mt-1 text-xs text-[var(--muted)]">Personal best: {best}d</div>
-                <EntityConnections data={data} entityType="habit" entityId={String(item.id)} action={action} />
               </div>
             );
           })}

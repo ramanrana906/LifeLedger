@@ -26,7 +26,7 @@ import { Parchment, Field, TextArea, Select, ProgressBar, Empty, Modal } from '@
 import { NavIcon } from '@/components/ledger/nav-icon';
 import { EntityConnections } from '@/components/ledger/entity-connections';
 
-type ActionFn = (type: string, payload?: Row) => Promise<void>;
+type ActionFn = (type: string, payload?: Row) => Promise<boolean>;
 
 function GoalsOverviewDashboard({ data }: { data: Dashboard }) {
   const [progressOpen, setProgressOpen] = useState(false);
@@ -699,7 +699,7 @@ function GoalTreeItem({
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center justify-end gap-2">
             {nextLevel ? (
               <button
                 type="button"
@@ -718,6 +718,8 @@ function GoalTreeItem({
                 {goal.completed ? 'Done ✓' : 'Mark Done'}
               </button>
             ) : null}
+
+            <EntityConnections data={data} entityType="goal" entityId={String(goal.id)} action={action} compact />
 
             <button type="button" className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-brass transition" onClick={() => setEditing((prev) => !prev)} title="Edit goal">
               ✎
@@ -752,7 +754,6 @@ function GoalTreeItem({
                 {parentWhy ? <div>{parentWhy}</div> : null}
               </div>
             ) : null}
-            <EntityConnections data={data} entityType="goal" entityId={String(goal.id)} action={action} />
           </div>
         ) : null}
 
@@ -900,7 +901,8 @@ function GoalGraphDiagram({ data, action, onRequestDelete }: { data: Dashboard; 
             <span className="font-semibold truncate">{selectedGoal.title}</span>
             <span className="text-amber-700">({goalLevelLabel(String(selectedGoal.level))})</span>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            <EntityConnections data={data} entityType="goal" entityId={String(selectedGoal.id)} action={action} compact />
             <button
               type="button"
               onClick={() => action('goal.toggle', { id: selectedGoal.id })}

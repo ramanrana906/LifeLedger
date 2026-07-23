@@ -27,7 +27,7 @@ import { Parchment, SubTabs, Stat, Field, Select, ProgressBar, ListItem, Empty, 
 import { SvgCanvasTrendChart, ChartTooltip, ChartBox, ChartPlaceholder, AxisLabel } from '@/components/ledger/charts';
 import { EntityConnections } from '@/components/ledger/entity-connections';
 
-type ActionFn = (type: string, payload?: Row) => Promise<void>;
+type ActionFn = (type: string, payload?: Row) => Promise<boolean>;
 
 export function Finance({ data, action }: { data: Dashboard; action: ActionFn }) {
   const financeTabs = ['Overview', 'Transactions', 'Income', 'Savings', 'Debts', 'Assets'] as const;
@@ -82,7 +82,6 @@ export function Finance({ data, action }: { data: Dashboard; action: ActionFn })
     endDate: '',
     query: '',
   });
-  const [expandedTransactionId, setExpandedTransactionId] = useState('');
   const [dismissedDebtSuggestions, setDismissedDebtSuggestions] = useState<Set<string>>(dismissedLinkSuggestionKeys);
   const financeSummary = data.financeSummary ?? {};
   const core = financeSummary.core ?? {};
@@ -163,7 +162,6 @@ export function Finance({ data, action }: { data: Dashboard; action: ActionFn })
         if (target.entityType === 'finance_transaction') {
           if (!data.transactions.some((item) => String(item.id) === target.entityId)) return;
           setActiveFinanceTab('Transactions');
-          setExpandedTransactionId(target.entityId);
           setTransactionFilter({
             type: '',
             category: '',
@@ -683,20 +681,14 @@ export function Finance({ data, action }: { data: Dashboard; action: ActionFn })
                 title={`${dateKey(item.transactionDate)} · ${transactionTypeLabel(item.type)} · ${item.category ?? 'Other'}`}
                 note={`${item.note ? `${item.note} · ` : ''}${item.linkedDebt?.name ? `Debt: ${item.linkedDebt.name}` : ''}`}
                 right={
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap items-center justify-end gap-2">
                     {item.status === 'predicted' ? (
                       <span className="rounded-full border border-amber-300 bg-amber-100 px-2 py-0.5 text-[10px] font-bold text-amber-800">Pending confirmation</span>
                     ) : null}
                     <span className={`font-semibold tabular-nums text-sm ${item.type === 'income' ? 'text-moss' : item.type === 'debt_payment' ? 'text-brass' : 'text-wax'}`}>
                       {item.type === 'income' ? '+' : '-'}₹{Number(item.amount ?? 0).toFixed(2)}
                     </span>
-                    <button
-                      type="button"
-                      className="rounded px-2 py-1 text-xs font-medium text-brass hover:bg-brass hover:text-white"
-                      onClick={() => setExpandedTransactionId(expandedTransactionId === String(item.id) ? '' : String(item.id))}
-                    >
-                      {expandedTransactionId === String(item.id) ? 'Hide' : 'Connections'}
-                    </button>
+                    <EntityConnections data={data} entityType="finance_transaction" entityId={String(item.id)} action={action} compact />
                   </div>
                 }
                 onEdit={() => {
@@ -734,7 +726,6 @@ export function Finance({ data, action }: { data: Dashboard; action: ActionFn })
                   })
                 }
               />
-              {expandedTransactionId === String(item.id) ? <EntityConnections data={data} entityType="finance_transaction" entityId={String(item.id)} action={action} compact /> : null}
             </div>
           ))}
         </Parchment>
@@ -808,7 +799,11 @@ export function Finance({ data, action }: { data: Dashboard; action: ActionFn })
       {/* SAVINGS */}
       <div className={activeFinanceTab === 'Savings' ? 'space-y-5' : 'hidden'}>
         <div id={data.savings ? entityDomId('finance_savings', String(data.savings.userId ?? 'savings')) : undefined} className="transition">
-          <Parchment title="Savings" eyebrow="Liquid Balance & Target">
+          <Parchment
+            title="Savings"
+            eyebrow="Liquid Balance & Target"
+            action={data.savings ? <EntityConnections data={data} entityType="finance_savings" entityId={String(data.savings.userId ?? 'savings')} action={action} /> : undefined}
+          >
             <form
               onSubmit={(event) => {
                 event.preventDefault();
@@ -842,7 +837,6 @@ export function Finance({ data, action }: { data: Dashboard; action: ActionFn })
               </div>
               <ProgressBar value={Number(data.savings?.balance ?? 0)} max={Number(savingsGoal) || 1} tone={colors.moss} />
             </div>
-            {data.savings ? <EntityConnections data={data} entityType="finance_savings" entityId={String(data.savings.userId ?? 'savings')} action={action} /> : null}
           </Parchment>
         </div>
       </div>
@@ -1176,7 +1170,7 @@ export function Finance({ data, action }: { data: Dashboard; action: ActionFn })
 function LoanItem({ item, summary, data, action }: { item: Row; summary?: Row; data: Dashboard; action: ActionFn }) {
   return (
     <div id={entityDomId('finance_debt', String(item.id))} className="ledger-row py-4 transition">
-      <div className="flex items-start gap-3">
+      <div className="flex flex-wrap items-start gap-3">
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
             <div className="font-medium">{item.name}</div>
@@ -1207,6 +1201,7 @@ function LoanItem({ item, summary, data, action }: { item: Row; summary?: Row; d
           ) : null}
         </div>
         <strong className="shrink-0 text-wax">{Number(item.balance).toFixed(2)}</strong>
+        <EntityConnections data={data} entityType="finance_debt" entityId={String(item.id)} action={action} compact />
         <button
           className="rounded px-2 py-1 text-sm text-brass hover:bg-brass hover:text-white"
           onClick={() => {
@@ -1240,7 +1235,6 @@ function LoanItem({ item, summary, data, action }: { item: Row; summary?: Row; d
           Delete
         </button>
       </div>
-      <EntityConnections data={data} entityType="finance_debt" entityId={String(item.id)} action={action} />
     </div>
   );
 }

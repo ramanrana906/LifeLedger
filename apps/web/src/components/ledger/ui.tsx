@@ -1,10 +1,14 @@
 'use client';
 
 import React from 'react';
+import { createPortal } from 'react-dom';
 import { NavIcon } from './nav-icon';
 import { colors, rangeOptions } from '@/lib/ledger/constants';
 import { skillStageIndex, skillStageLabel } from '@/lib/ledger/utils';
 import { skillStages } from '@/lib/ledger/constants';
+
+const openModalIds: string[] = [];
+let bodyOverflowBeforeModals: string | null = null;
 
 // ── Card / Layout ─────────────────────────────────────────────────────────────
 
@@ -129,12 +133,12 @@ export function ListItem({
   onDelete?: () => void;
 }) {
   return (
-    <div className="ledger-row flex items-center gap-3 py-3">
-      <div className="min-w-0 flex-1">
+    <div className="ledger-row flex flex-wrap items-center gap-3 py-3">
+      <div className="min-w-0 flex-1 basis-48">
         <div className={`truncate text-base font-medium ${muted ? 'text-[var(--muted)] line-through' : ''}`}>{title}</div>
         {note ? <div className="mt-1 text-xs text-[var(--muted)]">{note}</div> : null}
       </div>
-      {right ? <div className="flex shrink-0 items-center gap-2">{right}</div> : null}
+      {right ? <div className="flex flex-wrap shrink-0 items-center gap-2">{right}</div> : null}
       {onEdit ? <button className="rounded px-2 py-1 text-sm text-brass hover:bg-brass hover:text-white" onClick={onEdit}>Edit</button> : null}
       {onDelete ? <button className="rounded px-2 py-1 text-sm text-wax hover:bg-wax hover:text-white" onClick={onDelete}>Delete</button> : null}
     </div>
@@ -226,6 +230,10 @@ export function Modal({
   cancelText = 'Cancel',
   onConfirm,
   tone = 'brass',
+  showFooter = true,
+  maxWidth = 'md',
+  id,
+  closeLabel = 'Close dialog',
 }: {
   isOpen: boolean;
   onClose: () => void;
@@ -235,8 +243,92 @@ export function Modal({
   cancelText?: string | null;
   onConfirm?: () => void;
   tone?: 'brass' | 'danger' | 'warning';
+  showFooter?: boolean;
+  maxWidth?: 'md' | 'lg';
+  id?: string;
+  closeLabel?: string;
 }) {
-  if (!isOpen) return null;
+  const generatedId = React.useId();
+  const dialogId = id ?? `modal-${generatedId.replaceAll(':', '')}`;
+  const titleId = `${dialogId}-title`;
+  const panelRef = React.useRef<HTMLDivElement>(null);
+  const onCloseRef = React.useRef(onClose);
+  const previouslyFocusedRef = React.useRef<HTMLElement | null>(null);
+
+  React.useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
+
+  React.useEffect(() => {
+    if (!isOpen) return;
+
+    previouslyFocusedRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    if (!openModalIds.includes(dialogId)) openModalIds.push(dialogId);
+    if (openModalIds.length === 1) {
+      bodyOverflowBeforeModals = document.body.style.overflow;
+      document.body.style.overflow = 'hidden';
+    }
+
+    const focusableSelector =
+      'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+    const focusInitialControl = window.requestAnimationFrame(() => {
+      if (openModalIds.at(-1) !== dialogId) return;
+      const panel = panelRef.current;
+      if (!panel) return;
+      const preferred = panel.querySelector<HTMLElement>('[data-modal-autofocus]');
+      const firstFocusable = panel.querySelector<HTMLElement>(focusableSelector);
+      (preferred ?? firstFocusable ?? panel).focus();
+    });
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (openModalIds.at(-1) !== dialogId) return;
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        event.stopPropagation();
+        onCloseRef.current();
+        return;
+      }
+      if (event.key !== 'Tab') return;
+
+      const panel = panelRef.current;
+      if (!panel) return;
+      const focusable = [...panel.querySelectorAll<HTMLElement>(focusableSelector)].filter(
+        (element) => element.getClientRects().length > 0,
+      );
+      if (focusable.length === 0) {
+        event.preventDefault();
+        panel.focus();
+        return;
+      }
+
+      const first = focusable[0];
+      const last = focusable.at(-1);
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last?.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.cancelAnimationFrame(focusInitialControl);
+      document.removeEventListener('keydown', handleKeyDown);
+      const wasTopModal = openModalIds.at(-1) === dialogId;
+      const stackIndex = openModalIds.lastIndexOf(dialogId);
+      if (stackIndex >= 0) openModalIds.splice(stackIndex, 1);
+      if (openModalIds.length === 0) {
+        document.body.style.overflow = bodyOverflowBeforeModals ?? '';
+        bodyOverflowBeforeModals = null;
+      }
+      const previousFocus = previouslyFocusedRef.current;
+      if (wasTopModal && previousFocus?.isConnected) previousFocus.focus();
+    };
+  }, [dialogId, isOpen]);
+
+  if (!isOpen || typeof document === 'undefined') return null;
 
   const btnTone = {
     brass: 'bg-brass hover:bg-brass-deep text-white',
@@ -244,52 +336,73 @@ export function Modal({
     warning: 'bg-amber-600 hover:bg-amber-500 text-white',
   }[tone];
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 backdrop-blur-xs p-4 animate-in fade-in duration-200">
-      <div className="w-full max-w-md rounded-3xl border border-rule bg-card p-6 shadow-2xl space-y-4">
+  const widthClass = maxWidth === 'lg' ? 'max-w-2xl' : 'max-w-md';
+
+  return createPortal(
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4 backdrop-blur-xs animate-in fade-in duration-200"
+      onClick={(event) => {
+        event.stopPropagation();
+        if (event.target === event.currentTarget) onClose();
+      }}
+    >
+      <div
+        ref={panelRef}
+        id={dialogId}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        tabIndex={-1}
+        onClick={(event) => event.stopPropagation()}
+        className={`max-h-[calc(100vh-2rem)] w-full overflow-y-auto rounded-3xl border border-rule bg-card p-6 shadow-2xl space-y-4 ${widthClass}`}
+      >
         <div className="flex items-center justify-between border-b pb-3">
-          <h3 className="text-base font-bold text-ink">{title}</h3>
+          <h3 id={titleId} className="text-base font-bold text-ink">{title}</h3>
           <button
             type="button"
             onClick={onClose}
+            aria-label={closeLabel}
             className="flex h-7 w-7 items-center justify-center rounded-xl border border-rule text-xs font-bold text-slate-400 hover:bg-slate-100 hover:text-ink transition"
           >
-            ✕
+            <span aria-hidden="true">✕</span>
           </button>
         </div>
         <div className="text-xs leading-relaxed text-slate-600">{children}</div>
-        <div className="flex items-center justify-end gap-2 border-t pt-3">
-          {cancelText ? (
-            <button
-              type="button"
-              onClick={onClose}
-              className="rounded-xl border border-rule bg-background px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 transition active:scale-95"
-            >
-              {cancelText}
-            </button>
-          ) : null}
-          {onConfirm ? (
-            <button
-              type="button"
-              onClick={() => {
-                onConfirm();
-                onClose();
-              }}
-              className={`rounded-xl px-4 py-2 text-xs font-semibold shadow-xs transition active:scale-95 ${btnTone}`}
-            >
-              {actionText}
-            </button>
-          ) : (
-            <button
-              type="button"
-              onClick={onClose}
-              className={`rounded-xl px-4 py-2 text-xs font-semibold shadow-xs transition active:scale-95 ${btnTone}`}
-            >
-              OK
-            </button>
-          )}
-        </div>
+        {showFooter ? (
+          <div className="flex items-center justify-end gap-2 border-t pt-3">
+            {cancelText ? (
+              <button
+                type="button"
+                onClick={onClose}
+                className="rounded-xl border border-rule bg-background px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 transition active:scale-95"
+              >
+                {cancelText}
+              </button>
+            ) : null}
+            {onConfirm ? (
+              <button
+                type="button"
+                onClick={() => {
+                  onConfirm();
+                  onClose();
+                }}
+                className={`rounded-xl px-4 py-2 text-xs font-semibold shadow-xs transition active:scale-95 ${btnTone}`}
+              >
+                {actionText}
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={onClose}
+                className={`rounded-xl px-4 py-2 text-xs font-semibold shadow-xs transition active:scale-95 ${btnTone}`}
+              >
+                OK
+              </button>
+            )}
+          </div>
+        ) : null}
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }

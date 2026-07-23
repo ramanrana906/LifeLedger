@@ -9,7 +9,7 @@ import { Parchment, SubTabs, Stat, Field, TextArea, Select, ListItem, Empty, Ski
 import { ChartTooltip, ChartBox, Heatmap, ChartPlaceholder, AxisLabel } from '@/components/ledger/charts';
 import { EntityConnections } from '@/components/ledger/entity-connections';
 
-type ActionFn = (type: string, payload?: Row) => Promise<void>;
+type ActionFn = (type: string, payload?: Row) => Promise<boolean>;
 
 interface FlashcardItem {
   id: string;
@@ -404,6 +404,7 @@ export function Learning({ data, action }: { data: Dashboard; action: ActionFn }
                     </Select>
 
                     <div className="flex items-center gap-2">
+                      <EntityConnections data={data} entityType="learning_skill" entityId={String(item.id)} action={action} compact />
                       <button
                         className="rounded-lg px-2 py-1 text-xs text-brass hover:bg-brass/10"
                         onClick={() => {
@@ -431,7 +432,6 @@ export function Learning({ data, action }: { data: Dashboard; action: ActionFn }
                       </button>
                     </div>
                   </div>
-                  <EntityConnections data={data} entityType="learning_skill" entityId={String(item.id)} action={action} />
                 </div>
               );
             })}

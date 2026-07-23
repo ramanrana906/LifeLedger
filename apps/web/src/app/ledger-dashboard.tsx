@@ -62,7 +62,7 @@ export function LedgerDashboard({ name }: { name?: string | null }) {
         console.error('Failed to toggle goal:', err);
         load();
       });
-      return;
+      return true;
     }
 
     setSaving(true);
@@ -86,7 +86,7 @@ export function LedgerDashboard({ name }: { name?: string | null }) {
           tone: 'warning',
         });
         setSaving(false);
-        return;
+        return false;
       }
     } catch (err) {
       setAlertModal({
@@ -95,7 +95,7 @@ export function LedgerDashboard({ name }: { name?: string | null }) {
         tone: 'danger',
       });
       setSaving(false);
-      return;
+      return false;
     }
     await load();
     setSaving(false);
@@ -109,6 +109,7 @@ export function LedgerDashboard({ name }: { name?: string | null }) {
       });
       undoTimer.current = setTimeout(() => setUndo(null), 7000);
     }
+    return true;
   }
 
   async function restoreDeleted() {

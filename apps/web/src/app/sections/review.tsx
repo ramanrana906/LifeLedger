@@ -11,7 +11,7 @@ import { dateKey, debtSeries, daysBack, daysUntil } from '@/lib/ledger/utils';
 import { Parchment, Stat, TextArea, ProgressBar, Empty, Field, Modal } from '@/components/ledger/ui';
 import { SvgCanvasTrendChart, ChartTooltip, SparkBox, ChartPlaceholder } from '@/components/ledger/charts';
 
-type ActionFn = (type: string, payload?: Row) => Promise<void>;
+type ActionFn = (type: string, payload?: Row) => Promise<boolean>;
 
 export function Review({ data, action }: { data: Dashboard; action: ActionFn }) {
   const dailyGoals = data.goals.filter((item) => item.level === 'daily');

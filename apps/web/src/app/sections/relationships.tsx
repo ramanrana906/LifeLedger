@@ -5,7 +5,7 @@ import { Dashboard, Row } from '@/lib/ledger/types';
 import { submit, ask } from '@/lib/ledger/utils';
 import { Parchment, SubTabs, Field, Select, ListItem, Empty } from '@/components/ledger/ui';
 
-type ActionFn = (type: string, payload?: Row) => Promise<void>;
+type ActionFn = (type: string, payload?: Row) => Promise<boolean>;
 
 export function Relationships({ data, action }: { data: Dashboard; action: ActionFn }) {
   const relationshipTabs = ['Check-ins', 'Important Dates'] as const;

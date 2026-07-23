@@ -127,6 +127,8 @@ export function focusEntityInView(target: EntityNavigationTarget) {
       const element = document.getElementById(entityDomId(target.entityType, target.entityId));
       if (!element) return;
       element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      if (!element.hasAttribute('tabindex')) element.setAttribute('tabindex', '-1');
+      element.focus({ preventScroll: true });
       element.classList.add('ring-4', 'ring-brass/20');
       setTimeout(() => element.classList.remove('ring-4', 'ring-brass/20'), 1800);
       const pending = readEntityNavigationTarget();

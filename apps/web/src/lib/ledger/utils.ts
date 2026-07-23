@@ -51,6 +51,120 @@ export function navigateTo(tab: string, options?: string | { healthTab?: string;
   setTimeout(() => document.querySelector<HTMLButtonElement>(`button[data-tab="${tab}"]`)?.click());
 }
 
+export type EntityType = 'goal' | 'habit' | 'routine' | 'routine_step' | 'learning_skill' | 'finance_debt' | 'finance_savings' | 'finance_transaction' | 'journal_entry';
+
+export type EntityNavigationTarget = {
+  entityType: EntityType;
+  entityId: string;
+};
+
+const entityNavigationKey = 'life-ledger-entity-target';
+const entityNavigationEvent = 'life-ledger:navigate-entity';
+const dismissedLinkSuggestionsKey = 'life-ledger-dismissed-link-suggestions';
+
+const entityNavigationMap: Record<
+  EntityType,
+  {
+    tab: string;
+    options?: { financeTab?: string; learningTab?: string };
+  }
+> = {
+  goal: { tab: 'Goals' },
+  habit: { tab: 'Habits' },
+  routine: { tab: 'Routines' },
+  routine_step: { tab: 'Routines' },
+  learning_skill: {
+    tab: 'Learning',
+    options: { learningTab: 'Subjects & Skills' },
+  },
+  finance_debt: { tab: 'Finance', options: { financeTab: 'Debts' } },
+  finance_savings: { tab: 'Finance', options: { financeTab: 'Savings' } },
+  finance_transaction: {
+    tab: 'Finance',
+    options: { financeTab: 'Transactions' },
+  },
+  journal_entry: { tab: 'Today' },
+};
+
+export function entityDomId(entityType: string, entityId: string) {
+  return `entity-${entityType}-${entityId}`;
+}
+
+export function readEntityNavigationTarget(): EntityNavigationTarget | null {
+  if (typeof window === 'undefined') return null;
+  const raw = window.sessionStorage.getItem(entityNavigationKey);
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as Partial<EntityNavigationTarget>;
+    if (!parsed.entityType || !parsed.entityId || !(parsed.entityType in entityNavigationMap)) return null;
+    return {
+      entityType: parsed.entityType as EntityType,
+      entityId: String(parsed.entityId),
+    };
+  } catch {
+    window.sessionStorage.removeItem(entityNavigationKey);
+    return null;
+  }
+}
+
+export function listenForEntityNavigation(callback: (target: EntityNavigationTarget) => void) {
+  if (typeof window === 'undefined') return () => undefined;
+  const handleNavigation = (event?: Event) => {
+    const detail = event instanceof CustomEvent ? (event.detail as EntityNavigationTarget | undefined) : undefined;
+    const target = detail ?? readEntityNavigationTarget();
+    if (target) callback(target);
+  };
+  window.addEventListener(entityNavigationEvent, handleNavigation);
+  const pending = readEntityNavigationTarget();
+  if (pending) callback(pending);
+  return () => window.removeEventListener(entityNavigationEvent, handleNavigation);
+}
+
+export function focusEntityInView(target: EntityNavigationTarget) {
+  if (typeof window === 'undefined') return;
+  window.requestAnimationFrame(() => {
+    setTimeout(() => {
+      const element = document.getElementById(entityDomId(target.entityType, target.entityId));
+      if (!element) return;
+      element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      element.classList.add('ring-4', 'ring-brass/20');
+      setTimeout(() => element.classList.remove('ring-4', 'ring-brass/20'), 1800);
+      const pending = readEntityNavigationTarget();
+      if (pending?.entityType === target.entityType && pending.entityId === target.entityId) {
+        window.sessionStorage.removeItem(entityNavigationKey);
+      }
+    }, 80);
+  });
+}
+
+export function navigateToEntity(entityType: EntityType, entityId: string) {
+  if (typeof window !== 'undefined') {
+    const target = { entityType, entityId: String(entityId) };
+    window.sessionStorage.setItem(entityNavigationKey, JSON.stringify(target));
+    window.dispatchEvent(new CustomEvent(entityNavigationEvent, { detail: target }));
+  }
+  const destination = entityNavigationMap[entityType];
+  navigateTo(destination.tab, destination.options);
+}
+
+export function dismissedLinkSuggestionKeys() {
+  if (typeof window === 'undefined') return new Set<string>();
+  try {
+    const stored = JSON.parse(window.sessionStorage.getItem(dismissedLinkSuggestionsKey) ?? '[]');
+    return new Set<string>(Array.isArray(stored) ? stored.map(String) : []);
+  } catch {
+    window.sessionStorage.removeItem(dismissedLinkSuggestionsKey);
+    return new Set<string>();
+  }
+}
+
+export function rememberDismissedLinkSuggestion(suggestionKey: string) {
+  if (typeof window === 'undefined') return;
+  const dismissed = dismissedLinkSuggestionKeys();
+  dismissed.add(suggestionKey);
+  window.sessionStorage.setItem(dismissedLinkSuggestionsKey, JSON.stringify([...dismissed]));
+}
+
 // ── Finance utilities ──────────────────────────────────────────────────────────
 
 export function financeTransactionsForMonth(data: Dashboard, month = monthKey(data.today)) {
@@ -61,19 +175,34 @@ export function financeTotalsForMonth(data: Dashboard, month = monthKey(data.tod
   return financeTransactionsForMonth(data, month).reduce(
     (totals, row) => {
       const amount = Number(row.amount ?? 0);
-      if (row.type === 'income') totals.income += amount;
-      if (row.type === 'expense') totals.expenses += amount;
-      if (row.type === 'debt_payment') totals.debtPaid += amount;
+      if (row.type === 'income') {
+        if (row.status === 'predicted') {
+          totals.pendingIncome += amount;
+          totals.hasPendingIncome = true;
+        } else if (row.status === 'confirmed') {
+          totals.income += amount;
+          totals.confirmedIncome += amount;
+        }
+      }
+      if (row.status === 'confirmed' && row.type === 'expense') totals.expenses += amount;
+      if (row.status === 'confirmed' && row.type === 'debt_payment') totals.debtPaid += amount;
       return totals;
     },
-    { income: 0, expenses: 0, debtPaid: 0 },
+    {
+      income: 0,
+      confirmedIncome: 0,
+      pendingIncome: 0,
+      hasPendingIncome: false,
+      expenses: 0,
+      debtPaid: 0,
+    },
   );
 }
 
 export function expenseBreakdownForMonth(data: Dashboard, month = monthKey(data.today)) {
   const totals = new Map<string, number>();
   financeTransactionsForMonth(data, month)
-    .filter((row) => row.type === 'expense')
+    .filter((row) => row.type === 'expense' && row.status === 'confirmed')
     .forEach((row) => {
       const category = String(row.category ?? 'Other');
       totals.set(category, (totals.get(category) ?? 0) + Number(row.amount ?? 0));
@@ -88,7 +217,9 @@ export function transactionTypeLabel(type?: string) {
 }
 
 export function totalAssets(data: Dashboard) {
-  return data.assets.reduce((sum, item) => sum + Number(item.currentValue ?? 0), 0);
+  const manualAssets = data.assets.reduce((sum, item) => sum + Number(item.currentValue ?? 0), 0);
+  const savingsBalance = Number(data.savings?.balance ?? 0);
+  return manualAssets + savingsBalance;
 }
 
 export function totalLiabilities(data: Dashboard) {
@@ -99,10 +230,18 @@ export function debtSeries(data: Dashboard) {
   const payments = [...data.debtPayments].sort((a, b) => String(a.paidOn).localeCompare(String(b.paidOn)));
   const initialDebt = data.debts.reduce((sum, item) => sum + Number(item.principal ?? item.balance), 0);
   let running = initialDebt;
-  const points = [{ date: payments[0]?.paidOn ? dateKey(payments[0].paidOn) : data.today, debt: Number(initialDebt.toFixed(2)) }];
+  const points = [
+    {
+      date: payments[0]?.paidOn ? dateKey(payments[0].paidOn) : data.today,
+      debt: Number(initialDebt.toFixed(2)),
+    },
+  ];
   payments.forEach((payment) => {
     running = Math.max(0, running - Number(payment.principalPortion ?? payment.amount));
-    points.push({ date: dateKey(payment.paidOn), debt: Number(running.toFixed(2)) });
+    points.push({
+      date: dateKey(payment.paidOn),
+      debt: Number(running.toFixed(2)),
+    });
   });
   const currentDebt = data.debts.reduce((sum, item) => sum + Number(item.balance), 0);
   if (!points.length || points.at(-1)?.date !== data.today) points.push({ date: data.today, debt: Number(currentDebt.toFixed(2)) });
@@ -125,7 +264,11 @@ export function netWorthSeries(data: Dashboard) {
     netWorth: Number(row.netWorth ?? 0),
   }));
   if (!rows.length && !data.assets.length && !data.debts.length) return [];
-  if (!rows.length) rows.push({ date: data.today, netWorth: totalAssets(data) - totalLiabilities(data) });
+  if (!rows.length)
+    rows.push({
+      date: data.today,
+      netWorth: totalAssets(data) - totalLiabilities(data),
+    });
   return rows;
 }
 
@@ -146,44 +289,75 @@ export function monthlyPaymentRate(data: Dashboard) {
 
 export function projectedPayoff(data: Dashboard) {
   const payoffDates = data.loanSummaries
-    .map((item) => item.projectedPayoffDate ? new Date(item.projectedPayoffDate).getTime() : null)
+    .map((item) => (item.projectedPayoffDate ? new Date(item.projectedPayoffDate).getTime() : null))
     .filter((value): value is number => value != null && Number.isFinite(value));
   if (payoffDates.length) {
-    return new Date(Math.max(...payoffDates)).toLocaleDateString(undefined, { month: 'short', year: 'numeric' });
+    return new Date(Math.max(...payoffDates)).toLocaleDateString(undefined, {
+      month: 'short',
+      year: 'numeric',
+    });
   }
   const debt = data.debts.reduce((sum, item) => sum + Number(item.balance), 0);
   const monthly = monthlyPaymentRate(data);
   if (!debt || !monthly) return 'No projection yet';
   const date = new Date(data.today);
   date.setUTCMonth(date.getUTCMonth() + Math.ceil(debt / monthly));
-  return date.toLocaleDateString(undefined, { month: 'short', year: 'numeric' });
+  return date.toLocaleDateString(undefined, {
+    month: 'short',
+    year: 'numeric',
+  });
 }
 
 // ── Goal utilities ──────────────────────────────────────────────────────────────
 
+export function activeGoals(data: Dashboard) {
+  const activeSet = new Set(data.goals.filter((g) => !g.deletedAt).map((g) => String(g.id)));
+  return data.goals.filter((goal) => {
+    if (goal.deletedAt) return false;
+    let current = goal;
+    const seen = new Set<string>();
+    while (current?.parentGoalId) {
+      if (seen.has(String(current.id))) return false;
+      seen.add(String(current.id));
+      if (!activeSet.has(String(current.parentGoalId))) return false;
+      current = data.goals.find((item) => String(item.id) === String(current.parentGoalId))!;
+    }
+    return true;
+  });
+}
+
 export function goalChildren(data: Dashboard, parentGoalId: string | null) {
-  return data.goals
+  return activeGoals(data)
     .filter((goal) => (goal.parentGoalId ?? null) === parentGoalId)
     .sort((a, b) => String(a.createdAt ?? '').localeCompare(String(b.createdAt ?? '')));
 }
 
 export function childGoalLevel(level: string) {
-  if (level === 'life') return 'monthly';
+  if (['north_star', 'one_year', 'five_year', 'someday', 'life'].includes(level)) return 'monthly';
   if (level === 'monthly') return 'weekly';
   if (level === 'weekly') return 'daily';
   return null;
 }
 
 export function goalLevelLabel(level: string) {
-  if (level === 'life') return 'North Star';
-  if (level === 'monthly') return 'Monthly Milestone';
+  if (['north_star', 'one_year', 'five_year', 'someday', 'life'].includes(level)) return 'North Star';
+  if (level === 'monthly') return 'Monthly Goal';
   if (level === 'weekly') return 'Weekly Goal';
   if (level === 'daily') return 'Daily Goal';
   return 'Goal';
 }
 
+export function goalPrompt(level: string) {
+  if (['north_star', 'one_year', 'five_year', 'someday', 'life'].includes(level)) return "What's the ONE Thing I want to achieve as my North Star?";
+  if (level === 'monthly') return "Based on my North Star Goal, what's the ONE Thing I can do this month?";
+  if (level === 'weekly') return "Based on my Monthly Goal, what's the ONE Thing I can do this week?";
+  if (level === 'daily') return "Based on my Weekly Goal, what's the ONE Thing I can do today?";
+  return 'What is the next clear goal?';
+}
+
 export function addGoalLabel(level: string) {
-  if (level === 'monthly') return '+ Add monthly milestone';
+  if (['north_star', 'one_year', 'five_year', 'someday', 'life'].includes(level)) return '+ Add North Star goal';
+  if (level === 'monthly') return '+ Add monthly goal';
   if (level === 'weekly') return '+ Add weekly goal';
   if (level === 'daily') return '+ Add daily goal';
   return '+ Add child goal';
@@ -205,7 +379,7 @@ export function northStarForGoal(data: Dashboard, goal: Row | null | undefined) 
     seen.add(String(current.id));
     current = data.goals.find((item) => item.id === current?.parentGoalId);
   }
-  return current?.level === 'life' ? current : null;
+  return current && ['north_star', 'one_year', 'five_year', 'someday', 'life'].includes(String(current?.level)) ? current : null;
 }
 
 export function northStarWhyLine(data: Dashboard, goal: Row | null | undefined) {
@@ -216,7 +390,7 @@ export function northStarWhyLine(data: Dashboard, goal: Row | null | undefined) 
 
 export function currentFocusGoal(data: Dashboard) {
   const focusGoalId = data.focusCycle?.focusGoalId;
-  return focusGoalId ? data.goals.find((goal) => goal.id === focusGoalId) ?? null : null;
+  return focusGoalId ? (data.goals.find((goal) => goal.id === focusGoalId) ?? null) : null;
 }
 
 export function descendantGoalIds(data: Dashboard, goalId: string) {
@@ -254,8 +428,12 @@ export function parseTargetAmount(value?: string | number | null) {
 }
 
 export function financeGoalProgress(data: Dashboard, goal: Row) {
-  const linkedDebts = data.debts.filter((debt) => debt.linkedGoalId === goal.id);
-  const linkedSavings = data.savings?.linkedGoalId === goal.id ? data.savings : null;
+  const connections = getLinkedEntities(data, 'goal', String(goal.id));
+  const debtIds = new Set(connections.filter((connection) => connection.entityType === 'finance_debt').map((connection) => connection.entityId));
+  const savingsIds = new Set(connections.filter((connection) => connection.entityType === 'finance_savings').map((connection) => connection.entityId));
+  const linkedDebts = data.debts.filter((debt) => debtIds.has(String(debt.id)));
+  const savingsId = data.savings ? String(data.savings.userId ?? 'savings') : '';
+  const linkedSavings = data.savings && savingsIds.has(savingsId) ? data.savings : null;
   const debtTarget = linkedDebts.reduce((sum, debt) => sum + Number(debt.principal ?? 0), 0);
   const debtRemaining = linkedDebts.reduce((sum, debt) => sum + Number(debt.balance ?? 0), 0);
   const savingsTarget = linkedSavings ? Number(linkedSavings.goalAmount ?? 0) || parseTargetAmount(goal.targetMetric) : 0;
@@ -272,24 +450,27 @@ export function financeGoalProgress(data: Dashboard, goal: Row) {
 }
 
 export function goalLevelClasses(level: string) {
-  if (level === 'life') return {
-    card: 'border-l-4 border-l-brass bg-card shadow-sm',
-    title: 'text-lg font-semibold text-ink',
-    meta: 'text-xs',
-    pad: 'p-4',
-  };
-  if (level === 'monthly') return {
-    card: 'border-l-4 border-l-moss/70 bg-background/60',
-    title: 'text-base font-semibold text-ink',
-    meta: 'text-xs',
-    pad: 'p-3',
-  };
-  if (level === 'weekly') return {
-    card: 'border-l-2 border-l-brass/45 bg-card/80',
-    title: 'text-sm font-medium text-ink',
-    meta: 'text-xs',
-    pad: 'p-3',
-  };
+  if (level === 'life')
+    return {
+      card: 'border-l-4 border-l-brass bg-card shadow-sm',
+      title: 'text-lg font-semibold text-ink',
+      meta: 'text-xs',
+      pad: 'p-4',
+    };
+  if (level === 'monthly')
+    return {
+      card: 'border-l-4 border-l-moss/70 bg-background/60',
+      title: 'text-base font-semibold text-ink',
+      meta: 'text-xs',
+      pad: 'p-3',
+    };
+  if (level === 'weekly')
+    return {
+      card: 'border-l-2 border-l-brass/45 bg-card/80',
+      title: 'text-sm font-medium text-ink',
+      meta: 'text-xs',
+      pad: 'p-3',
+    };
   return {
     card: 'border-l-2 border-l-rule bg-card/70',
     title: 'text-sm font-medium text-ink',
@@ -321,7 +502,10 @@ export function moduleCountsByDay(data: Dashboard, days = 90) {
   data.sessions.forEach((row) => add(row.logDate, 'learning'));
   data.routineDayLogs.filter((row) => row.status !== 'not_done').forEach((row) => add(row.logDate, 'routines'));
 
-  return daysBack(data.today, days).map((date) => ({ date, count: counts.get(date)?.size ?? 0 }));
+  return daysBack(data.today, days).map((date) => ({
+    date,
+    count: counts.get(date)?.size ?? 0,
+  }));
 }
 
 export function daysLoggedThisWeek(data: Dashboard) {
@@ -385,10 +569,13 @@ export function routineStepTypeLabel(type?: string | null) {
 }
 
 export function routineStepTargetLabel(data: Dashboard, step: Row) {
-  if (step.stepType === 'habit' && step.linkedHabitId) return data.habits.find((item) => item.id === step.linkedHabitId)?.name;
-  if (step.stepType === 'daily_goal' && step.linkedDailyGoalId) return data.goals.find((item) => item.id === step.linkedDailyGoalId)?.title;
-  if (step.stepType === 'weekly_goal' && step.linkedWeeklyGoalId) return data.goals.find((item) => item.id === step.linkedWeeklyGoalId)?.title;
-  if (step.stepType === 'learning' && step.linkedSkillId) return data.skills.find((item) => item.id === step.linkedSkillId)?.name;
+  const directType = step.targetType ? String(step.targetType) : null;
+  const directId = step.targetId ? String(step.targetId) : null;
+  const linkedTarget =
+    directType && directId
+      ? allLinkableEntities(data).find((item) => item.entityType === directType && item.entityId === directId)
+      : getLinkedEntities(data, 'routine_step', String(step.id)).find((item) => item.relationshipType === 'triggered_by');
+  if (linkedTarget) return linkedTarget.title;
   if (step.stepType === 'finance') return 'Finance activity today';
   if (step.stepType === 'journal') return 'Today journal entry';
   return null;
@@ -405,4 +592,163 @@ export function submit(event: FormEvent, callback: () => void) {
 
 export function ask(label: string, current: string | number | null | undefined) {
   return window.prompt(label, current == null ? '' : String(current));
+}
+
+export type LinkableEntity = {
+  entityType: EntityType;
+  entityId: string;
+  title: string;
+  subtitle: string;
+  level?: string;
+  selectable?: boolean;
+};
+
+export function allLinkableEntities(data: Dashboard): LinkableEntity[] {
+  const result: LinkableEntity[] = [];
+
+  (data.goals ?? [])
+    .filter((g) => !g.deletedAt)
+    .forEach((g) => {
+      result.push({
+        entityType: 'goal',
+        entityId: String(g.id),
+        title: String(g.title ?? 'Untitled goal'),
+        subtitle: `Goal (${g.level ?? 'North Star'})`,
+        level: String(g.level ?? ''),
+      });
+    });
+
+  (data.habits ?? [])
+    .filter((h) => !h.deletedAt)
+    .forEach((h) => {
+      result.push({
+        entityType: 'habit',
+        entityId: String(h.id),
+        title: String(h.name ?? 'Untitled habit'),
+        subtitle: `Habit (${h.kind ?? 'build'})`,
+      });
+    });
+
+  (data.skills ?? [])
+    .filter((s) => !s.deletedAt)
+    .forEach((s) => {
+      result.push({
+        entityType: 'learning_skill',
+        entityId: String(s.id),
+        title: String(s.name ?? 'Untitled skill'),
+        subtitle: 'Learning Skill',
+      });
+    });
+
+  (data.routines ?? [])
+    .filter((r) => !r.deletedAt)
+    .forEach((r) => {
+      result.push({
+        entityType: 'routine',
+        entityId: String(r.id),
+        title: String(r.name ?? 'Untitled routine'),
+        subtitle: `Routine (${r.timeAnchor ?? 'anytime'})`,
+      });
+      (r.steps ?? [])
+        .filter((step: Row) => !step.deletedAt)
+        .forEach((step: Row) => {
+          result.push({
+            entityType: 'routine_step',
+            entityId: String(step.id),
+            title: String(step.stepName ?? 'Untitled routine step'),
+            subtitle: `Step in ${r.name ?? 'routine'}`,
+          });
+        });
+    });
+
+  (data.debts ?? [])
+    .filter((d) => !d.deletedAt)
+    .forEach((d) => {
+      result.push({
+        entityType: 'finance_debt',
+        entityId: String(d.id),
+        title: String(d.name ?? 'Untitled debt'),
+        subtitle: `Debt (₹${Number(d.balance ?? 0).toLocaleString('en-IN')})`,
+      });
+    });
+
+  if (data.savings) {
+    result.push({
+      entityType: 'finance_savings',
+      entityId: String(data.savings.userId ?? 'savings'),
+      title: 'Savings Account',
+      subtitle: `Liquid Savings (₹${Number(data.savings.balance ?? 0).toLocaleString('en-IN')})`,
+    });
+  }
+
+  (data.transactions ?? [])
+    .filter((t) => !t.deletedAt)
+    .forEach((t) => {
+      result.push({
+        entityType: 'finance_transaction',
+        entityId: String(t.id),
+        title: `${t.category ?? 'Transaction'} ₹${Number(t.amount ?? 0).toFixed(2)}`,
+        subtitle: `Transaction (${dateKey(t.transactionDate)})`,
+      });
+    });
+
+  (data.journalEntries ?? [])
+    .filter((j) => !j.deletedAt)
+    .forEach((j) => {
+      result.push({
+        entityType: 'journal_entry',
+        entityId: String(j.id),
+        title: `Journal (${dateKey(j.entryDate)}) - ${j.mood ?? 'Entry'}`,
+        subtitle: j.body ? j.body.substring(0, 40) + '...' : 'Journal Entry',
+      });
+    });
+
+  return result;
+}
+
+export type LinkedEntityResult = {
+  linkId: string;
+  entityType: EntityType;
+  entityId: string;
+  title: string;
+  subtitle: string;
+  relationshipType: string;
+  direction: 'source' | 'target';
+};
+
+export function getLinkedEntities(data: Dashboard, entityType: EntityType, entityId: string): LinkedEntityResult[] {
+  const links = data.entityLinks ?? [];
+  const allEntities = allLinkableEntities(data);
+  const entityMap = new Map<string, LinkableEntity>();
+  allEntities.forEach((e) => entityMap.set(`${e.entityType}:${e.entityId}`, e));
+
+  const results: LinkedEntityResult[] = [];
+
+  links.forEach((l) => {
+    if (l.sourceType === entityType && String(l.sourceId) === String(entityId)) {
+      const match = entityMap.get(`${l.targetType}:${l.targetId}`);
+      results.push({
+        linkId: String(l.id),
+        entityType: l.targetType as EntityType,
+        entityId: String(l.targetId),
+        title: match?.title ?? `${l.targetType} (${String(l.targetId).substring(0, 6)})`,
+        subtitle: match?.subtitle ?? l.targetType,
+        relationshipType: l.relationshipType ?? 'linked',
+        direction: 'source',
+      });
+    } else if (l.targetType === entityType && String(l.targetId) === String(entityId)) {
+      const match = entityMap.get(`${l.sourceType}:${l.sourceId}`);
+      results.push({
+        linkId: String(l.id),
+        entityType: l.sourceType as EntityType,
+        entityId: String(l.sourceId),
+        title: match?.title ?? `${l.sourceType} (${String(l.sourceId).substring(0, 6)})`,
+        subtitle: match?.subtitle ?? l.sourceType,
+        relationshipType: l.relationshipType ?? 'linked',
+        direction: 'target',
+      });
+    }
+  });
+
+  return results;
 }

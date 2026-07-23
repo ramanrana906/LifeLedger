@@ -1,55 +1,62 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Dashboard, Row } from '@/lib/ledger/types';
 import { colors } from '@/lib/ledger/constants';
-import { daysBack, goalLevelLabel, goalTitle, submit, ask } from '@/lib/ledger/utils';
+import { daysBack, entityDomId, focusEntityInView, listenForEntityNavigation, submit, ask } from '@/lib/ledger/utils';
 import { Parchment, SubTabs, Field, TextArea, Select, ProgressBar, Empty } from '@/components/ledger/ui';
-import { NavIcon } from '@/components/ledger/nav-icon';
 import { Heatmap } from '@/components/ledger/charts';
+import { EntityConnections } from '@/components/ledger/entity-connections';
 
 type ActionFn = (type: string, payload?: Row) => Promise<void>;
 
 export function Habits({ data, action }: { data: Dashboard; action: ActionFn }) {
   const habitTabs = ['Building', 'Breaking'] as const;
   const [activeHabitTab, setActiveHabitTab] = useState<(typeof habitTabs)[number]>('Building');
-  const [habit, setHabit] = useState({ name: '', kind: 'build', linkedGoalId: '', whyThisMatters: '' });
-  const [habitGoalQuery, setHabitGoalQuery] = useState('');
+  const [habit, setHabit] = useState({
+    name: '',
+    kind: 'build',
+    whyThisMatters: '',
+  });
   const [expandedHabitId, setExpandedHabitId] = useState('');
   const building = data.habits.filter((item) => item.kind === 'build');
   const breaking = data.habits.filter((item) => item.kind === 'break');
   const currentTime = new Date(data.today).getTime();
   const daysSince = (iso?: string | null) => (iso ? Math.floor((currentTime - new Date(iso).getTime()) / 86400000) : 0);
-  const goalOptions = data.goals.map((goal) => ({ id: String(goal.id), label: `${goalLevelLabel(String(goal.level))}: ${goal.title}` }));
-  const goalIdFromLabel = (label: string) => goalOptions.find((goal) => goal.label === label)?.id ?? '';
-  const goalLabelFromId = (id?: string | null) => goalOptions.find((goal) => goal.id === id)?.label ?? '';
+
+  useEffect(
+    () =>
+      listenForEntityNavigation((target) => {
+        if (target.entityType !== 'habit') return;
+        const matchedHabit = data.habits.find((item) => String(item.id) === target.entityId);
+        if (!matchedHabit) return;
+        setActiveHabitTab(matchedHabit.kind === 'break' ? 'Breaking' : 'Building');
+        setExpandedHabitId(target.entityId);
+        focusEntityInView(target);
+      }),
+    [data.habits],
+  );
+
   return (
     <div className="space-y-5">
       <Parchment title="New Habit" eyebrow="Add">
         <form
-          onSubmit={(e) => submit(e, () => action('habit.add', { ...habit, linkedGoalId: habit.linkedGoalId || null }).then(() => {
-            setHabit({ name: '', kind: 'build', linkedGoalId: '', whyThisMatters: '' });
-            setHabitGoalQuery('');
-          }))}
-          className="grid gap-2 md:grid-cols-[1fr_150px_260px_auto]"
+          onSubmit={(e) =>
+            submit(e, () =>
+              action('habit.add', habit).then(() => {
+                setHabit({ name: '', kind: 'build', whyThisMatters: '' });
+              }),
+            )
+          }
+          className="grid gap-2 md:grid-cols-[1fr_150px_auto]"
         >
           <Field placeholder="Habit name" value={habit.name} onChange={(e) => setHabit({ ...habit, name: e.target.value })} />
-          <Select value={habit.kind} onChange={(e) => setHabit({ ...habit, kind: e.target.value })}><option value="build">Build</option><option value="break">Break</option></Select>
-          <Field
-            list="habit-goal-options"
-            placeholder="Link to a goal (optional)"
-            value={habitGoalQuery}
-            onChange={(e) => {
-              const query = e.target.value;
-              setHabitGoalQuery(query);
-              setHabit({ ...habit, linkedGoalId: goalIdFromLabel(query) });
-            }}
-          />
-          <datalist id="habit-goal-options">
-            {goalOptions.map((goal) => <option key={goal.id} value={goal.label} />)}
-          </datalist>
+          <Select value={habit.kind} onChange={(e) => setHabit({ ...habit, kind: e.target.value })}>
+            <option value="build">Build</option>
+            <option value="break">Break</option>
+          </Select>
           <button className="btn btn-primary">Add</button>
-          <label className="md:col-span-4">
+          <label className="md:col-span-3">
             <span className="text-xs font-medium text-[var(--muted)]">Why this is a standard for me</span>
             <TextArea
               className="mt-1.5 min-h-20"
@@ -68,16 +75,14 @@ export function Habits({ data, action }: { data: Dashboard; action: ActionFn }) 
           <div className="space-y-5">
             {building.map((item) => {
               const activeDates = new Set(daysBack(item.lastCheckin ?? data.today, Number(item.currentStreak) || 0));
-              const heat = daysBack(data.today, 42).map((date) => ({ date, count: activeDates.has(date) ? 1 : 0 }));
+              const heat = daysBack(data.today, 42).map((date) => ({
+                date,
+                count: activeDates.has(date) ? 1 : 0,
+              }));
               return (
-                <div key={item.id} className="ledger-row pb-5">
+                <div id={entityDomId('habit', String(item.id))} key={item.id} className="ledger-row pb-5 transition">
                   <div className="mb-3 flex items-center gap-3">
                     <div className="min-w-0 flex-1">
-                      {item.linkedGoalId ? (
-                        <span className="mb-1 inline-flex items-center gap-1 rounded-full border border-brass/25 bg-brass/10 px-2 py-0.5 text-xs font-medium text-brass">
-                          <NavIcon name="target" className="h-3 w-3" /> {goalTitle(data, String(item.linkedGoalId)) ?? 'Linked goal'}
-                        </span>
-                      ) : null}
                       {item.whyThisMatters ? (
                         <button
                           type="button"
@@ -88,26 +93,34 @@ export function Habits({ data, action }: { data: Dashboard; action: ActionFn }) 
                         </button>
                       ) : null}
                       <div className="font-medium">{item.name}</div>
-                      <div className="text-xs text-[var(--muted)]">Longest {item.longestStreak}d · last {item.lastCheckin ?? '-'}</div>
+                      <div className="text-xs text-[var(--muted)]">
+                        Longest {item.longestStreak}d · last {item.lastCheckin ?? '-'}
+                      </div>
                     </div>
                     <strong className="text-brass">{item.currentStreak}d</strong>
-                    <Field
-                      list="habit-goal-options"
-                      defaultValue={goalLabelFromId(item.linkedGoalId)}
-                      onBlur={(event) => action('habit.update', { id: item.id, name: item.name, kind: item.kind, linkedGoalId: goalIdFromLabel(event.target.value) || null })}
-                      className="max-w-48 text-xs"
-                      aria-label="Link habit to goal"
-                      placeholder="Link to a goal (optional)"
-                    />
-                    <button className="rounded px-2 py-1 text-sm text-brass hover:bg-brass hover:text-white" onClick={() => {
-                      const name = ask('Habit name', item.name);
-                      if (!name) return;
-                      const whyThisMatters = ask('Why this is a standard for me', item.whyThisMatters ?? '');
-                      if (whyThisMatters == null) return;
-                      action('habit.update', { id: item.id, name, kind: item.kind, linkedGoalId: item.linkedGoalId ?? null, whyThisMatters });
-                    }}>Edit</button>
-                    <button className={`btn ${item.lastCheckin === data.today ? 'check-pop border-moss bg-moss text-white' : ''}`} onClick={() => action('habit.checkin', { id: item.id })}>Check in</button>
-                    <button className="rounded px-2 py-1 text-sm text-wax hover:bg-wax hover:text-white" onClick={() => action('habit.delete', { id: item.id, label: 'Habit' })}>Delete</button>
+                    <button
+                      className="rounded px-2 py-1 text-sm text-brass hover:bg-brass hover:text-white"
+                      onClick={() => {
+                        const name = ask('Habit name', item.name);
+                        if (!name) return;
+                        const whyThisMatters = ask('Why this is a standard for me', item.whyThisMatters ?? '');
+                        if (whyThisMatters == null) return;
+                        action('habit.update', {
+                          id: item.id,
+                          name,
+                          kind: item.kind,
+                          whyThisMatters,
+                        });
+                      }}
+                    >
+                      Edit
+                    </button>
+                    <button className={`btn ${item.lastCheckin === data.today ? 'check-pop border-moss bg-moss text-white' : ''}`} onClick={() => action('habit.checkin', { id: item.id })}>
+                      Check in
+                    </button>
+                    <button className="rounded px-2 py-1 text-sm text-wax hover:bg-wax hover:text-white" onClick={() => action('habit.delete', { id: item.id, label: 'Habit' })}>
+                      Delete
+                    </button>
                   </div>
                   {expandedHabitId === String(item.id) && item.whyThisMatters ? (
                     <div className="mb-4 rounded-2xl border border-moss/20 bg-moss/5 p-3 text-sm leading-6 text-ink">
@@ -116,6 +129,7 @@ export function Habits({ data, action }: { data: Dashboard; action: ActionFn }) 
                     </div>
                   ) : null}
                   <Heatmap days={heat} compact />
+                  <EntityConnections data={data} entityType="habit" entityId={String(item.id)} action={action} />
                 </div>
               );
             })}
@@ -130,14 +144,9 @@ export function Habits({ data, action }: { data: Dashboard; action: ActionFn }) 
             const clean = daysSince(item.lastSlip);
             const best = Math.max(clean, Number(item.longestStreak) || 1);
             return (
-              <div key={item.id} className="ledger-row py-4">
+              <div id={entityDomId('habit', String(item.id))} key={item.id} className="ledger-row py-4 transition">
                 <div className="mb-3 flex items-center gap-3">
                   <div className="min-w-0 flex-1">
-                    {item.linkedGoalId ? (
-                      <span className="mb-1 inline-flex items-center gap-1 rounded-full border border-brass/25 bg-brass/10 px-2 py-0.5 text-xs font-medium text-brass">
-                        <NavIcon name="target" className="h-3 w-3" /> {goalTitle(data, String(item.linkedGoalId)) ?? 'Linked goal'}
-                      </span>
-                    ) : null}
                     {item.whyThisMatters ? (
                       <button
                         type="button"
@@ -151,23 +160,29 @@ export function Habits({ data, action }: { data: Dashboard; action: ActionFn }) 
                     <div className="text-xs text-[var(--muted)]">Last slip {item.lastSlip ?? '-'}</div>
                   </div>
                   <strong className="text-moss">{clean}d</strong>
-                  <Field
-                    list="habit-goal-options"
-                    defaultValue={goalLabelFromId(item.linkedGoalId)}
-                    onBlur={(event) => action('habit.update', { id: item.id, name: item.name, kind: item.kind, linkedGoalId: goalIdFromLabel(event.target.value) || null })}
-                    className="max-w-48 text-xs"
-                    aria-label="Link habit to goal"
-                    placeholder="Link to a goal (optional)"
-                  />
-                  <button className="rounded px-2 py-1 text-sm text-brass hover:bg-brass hover:text-white" onClick={() => {
-                    const name = ask('Habit name', item.name);
-                    if (!name) return;
-                    const whyThisMatters = ask('Why this is a standard for me', item.whyThisMatters ?? '');
-                    if (whyThisMatters == null) return;
-                    action('habit.update', { id: item.id, name, kind: item.kind, linkedGoalId: item.linkedGoalId ?? null, whyThisMatters });
-                  }}>Edit</button>
-                  <button className="btn" onClick={() => action('habit.slip', { id: item.id })}>Log slip</button>
-                  <button className="rounded px-2 py-1 text-sm text-wax hover:bg-wax hover:text-white" onClick={() => action('habit.delete', { id: item.id, label: 'Habit' })}>Delete</button>
+                  <button
+                    className="rounded px-2 py-1 text-sm text-brass hover:bg-brass hover:text-white"
+                    onClick={() => {
+                      const name = ask('Habit name', item.name);
+                      if (!name) return;
+                      const whyThisMatters = ask('Why this is a standard for me', item.whyThisMatters ?? '');
+                      if (whyThisMatters == null) return;
+                      action('habit.update', {
+                        id: item.id,
+                        name,
+                        kind: item.kind,
+                        whyThisMatters,
+                      });
+                    }}
+                  >
+                    Edit
+                  </button>
+                  <button className="btn" onClick={() => action('habit.slip', { id: item.id })}>
+                    Log slip
+                  </button>
+                  <button className="rounded px-2 py-1 text-sm text-wax hover:bg-wax hover:text-white" onClick={() => action('habit.delete', { id: item.id, label: 'Habit' })}>
+                    Delete
+                  </button>
                 </div>
                 {expandedHabitId === String(item.id) && item.whyThisMatters ? (
                   <div className="mb-4 rounded-2xl border border-moss/20 bg-moss/5 p-3 text-sm leading-6 text-ink">
@@ -177,6 +192,7 @@ export function Habits({ data, action }: { data: Dashboard; action: ActionFn }) 
                 ) : null}
                 <ProgressBar value={clean} max={best} tone={colors.moss} />
                 <div className="mt-1 text-xs text-[var(--muted)]">Personal best: {best}d</div>
+                <EntityConnections data={data} entityType="habit" entityId={String(item.id)} action={action} />
               </div>
             );
           })}

@@ -22,10 +22,8 @@ export type RoutineStepRecord = Record<string, unknown> & {
   orderIndex: number;
   stepName: string;
   stepType: string;
-  linkedHabitId?: string | null;
-  linkedDailyGoalId?: string | null;
-  linkedWeeklyGoalId?: string | null;
-  linkedSkillId?: string | null;
+  targetType?: string | null;
+  targetId?: string | null;
   linkedFinanceAction?: string | null;
   linkedJournal?: string | null;
 };
@@ -33,7 +31,6 @@ export type RoutineRecord = Record<string, unknown> & {
   id: string;
   name: string;
   timeAnchor?: string | null;
-  linkedGoalId?: string | null;
   steps: RoutineStepRecord[];
 };
 export type RoutineStatus = {
@@ -41,7 +38,6 @@ export type RoutineStatus = {
   routineId: string;
   name: string;
   timeAnchor: string | null;
-  linkedGoalId: string | null;
   completionPct: number;
   completedSteps: number;
   totalSteps: number;
@@ -132,26 +128,31 @@ export function evaluateRoutineStatuses({
   const stepDone = (step: RoutineStepRecord) => {
     switch (routineStepType(step.stepType)) {
       case 'habit': {
-        const habit = step.linkedHabitId
-          ? habitsById.get(String(step.linkedHabitId))
-          : null;
+        const habit =
+          step.targetType === 'habit' && step.targetId
+            ? habitsById.get(String(step.targetId))
+            : null;
         return Boolean(habit && sameDate(habit.lastCheckin, currentDate));
       }
       case 'daily_goal': {
-        const goal = step.linkedDailyGoalId
-          ? goalsById.get(String(step.linkedDailyGoalId))
-          : null;
+        const goal =
+          step.targetType === 'goal' && step.targetId
+            ? goalsById.get(String(step.targetId))
+            : null;
         return Boolean(goal?.completed);
       }
       case 'weekly_goal': {
-        const goal = step.linkedWeeklyGoalId
-          ? goalsById.get(String(step.linkedWeeklyGoalId))
-          : null;
+        const goal =
+          step.targetType === 'goal' && step.targetId
+            ? goalsById.get(String(step.targetId))
+            : null;
         return Boolean(goal?.completed);
       }
       case 'learning':
         return hasLearningToday(
-          step.linkedSkillId ? String(step.linkedSkillId) : null,
+          step.targetType === 'learning_skill' && step.targetId
+            ? String(step.targetId)
+            : null,
         );
       case 'finance':
         return hasFinanceToday;
@@ -209,7 +210,6 @@ export function evaluateRoutineStatuses({
       routineId: routine.id,
       name: routine.name,
       timeAnchor: routine.timeAnchor ?? null,
-      linkedGoalId: routine.linkedGoalId ?? null,
       protected: Boolean(routine.protected),
       completionPct,
       completedSteps,

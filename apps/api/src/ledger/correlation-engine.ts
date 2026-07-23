@@ -1,3 +1,11 @@
+import {
+  buildEntityLinkGraph,
+  entityRefKey,
+  traverseEntityLinks,
+} from './entity-link-graph';
+import type { EntityLinkGraph } from './entity-link-graph';
+import type { EntityTypeValue } from './entity-linking';
+
 type Row = Record<string, unknown>;
 
 export interface CorrelationPattern {
@@ -20,6 +28,10 @@ export interface CorrelationInput {
   dailyGoals: Row[];
   habits: Row[];
   routineDayLogs?: Row[];
+  entityLinks?: Row[];
+  goals?: Row[];
+  transactions?: Row[];
+  habitActivity?: Row[];
 }
 
 interface MetricPair {
@@ -29,6 +41,7 @@ interface MetricPair {
   yLabel: string;
   x: Map<string, number>;
   y: Map<string, number>;
+  minOverlap?: number;
   sentence: (args: SentenceArgs) => string;
 }
 
@@ -41,6 +54,7 @@ interface SentenceArgs {
 
 const WINDOWS = [30, 60, 90];
 const MIN_OVERLAP = 14;
+const MIN_LINKED_CHAIN_OVERLAP = 60;
 const MIN_ABS_CORRELATION = 0.4;
 
 const moodScores: Record<string, number> = {
@@ -83,7 +97,7 @@ export function computeCorrelationPatterns(
     for (const windowDays of WINDOWS) {
       const start = addDays(input.today, -(windowDays - 1));
       const points = overlappingPoints(pair.x, pair.y, start, input.today);
-      if (points.length < MIN_OVERLAP) continue;
+      if (points.length < (pair.minOverlap ?? MIN_OVERLAP)) continue;
 
       const coefficient = pearsonCorrelation(points);
       if (coefficient == null || Math.abs(coefficient) <= MIN_ABS_CORRELATION)
@@ -120,14 +134,12 @@ export function computeCorrelationPatterns(
 
 function buildMetricPairs(input: CorrelationInput): MetricPair[] {
   const sleepHours = averageByDate(input.sleep, 'logDate', 'hours');
-  const nextDayMood = shiftSeries(
-    scoreByDate(
-      input.journals,
-      'entryDate',
-      (row) => moodScores[String(row.mood)],
-    ),
-    -1,
+  const mood = scoreByDate(
+    input.journals,
+    'entryDate',
+    (row) => moodScores[String(row.mood)],
   );
+  const nextDayMood = shiftSeries(mood, -1);
   const goalCompletion = dailyGoalCompletion(input.dailyGoals);
   const nextDayGoalCompletion = shiftSeries(goalCompletion, -1);
   const protein = averageByDate(input.diet, 'logDate', 'protein');
@@ -190,7 +202,183 @@ function buildMetricPairs(input: CorrelationInput): MetricPair[] {
       sentence: ({ coefficient, effectPercent, windowDays, sampleSize }) =>
         `${directionPhrase(coefficient, 'Higher sleep is associated with stronger next-day routine completion', 'Lower sleep is associated with stronger next-day routine completion')} over the last ${windowDays} days (${sampleSize} matching days, ~${Math.abs(effectPercent).toFixed(0)}% swing).`,
     },
+    ...northStarMomentumPairs(input, mood),
   ];
+}
+
+function northStarMomentumPairs(
+  input: CorrelationInput,
+  mood: Map<string, number>,
+): MetricPair[] {
+  const links = input.entityLinks ?? [];
+  if (!links.length || !input.goals?.length) return [];
+
+  const graph = buildEntityLinkGraph(links);
+  return input.goals
+    .filter((goal) => isNorthStarLevel(goal.level))
+    .flatMap((goal): MetricPair[] => {
+      const goalId = stringValue(goal.id);
+      if (!goalId) return [];
+
+      const momentum = linkedGoalMomentumByDate(input, goalId, graph);
+      if (!momentum.size) return [];
+      const title = stringValue(goal.title) ?? 'North Star';
+
+      return [
+        {
+          id: `north-star-momentum-mood-${goalId}`,
+          label: `${title} momentum and mood`,
+          xLabel: 'linked-chain momentum',
+          yLabel: 'mood',
+          x: momentum,
+          y: mood,
+          minOverlap: MIN_LINKED_CHAIN_OVERLAP,
+          sentence: ({ coefficient, effectPercent, windowDays, sampleSize }) =>
+            `${directionPhrase(coefficient, `More activity across the links supporting "${title}" tends to line up with better mood`, `Less activity across the links supporting "${title}" tends to line up with better mood`)} over the last ${windowDays} days (${sampleSize} matching days, ~${Math.abs(effectPercent).toFixed(0)}% difference).`,
+        },
+      ];
+    });
+}
+
+/**
+ * Builds a daily activity series from the full entity-link component reachable
+ * from a goal. It intentionally treats links as undirected and de-duplicates
+ * events, so reverse-stored links, duplicate paths, and cycles do not inflate
+ * momentum.
+ */
+export function linkedGoalMomentumByDate(
+  input: CorrelationInput,
+  goalId: string,
+  existingGraph?: EntityLinkGraph,
+) {
+  const graph = existingGraph ?? buildEntityLinkGraph(input.entityLinks ?? []);
+  const connected = traverseEntityLinks({ type: 'goal', id: goalId }, graph);
+  const reachable = new Set(connected.map(entityRefKey));
+  const momentum = new Map<string, number>();
+  const countedEvents = new Set<string>();
+
+  const isReachable = (type: EntityTypeValue, id: unknown) => {
+    const parsedId = stringValue(id);
+    return parsedId
+      ? reachable.has(entityRefKey({ type, id: parsedId }))
+      : false;
+  };
+  const record = (
+    eventType: string,
+    eventId: string,
+    date: unknown,
+    value: number,
+  ) => {
+    const day = dateKey(date);
+    if (!day || !Number.isFinite(value)) return;
+    const eventKey = `${eventType}:${eventId}:${day}`;
+    if (countedEvents.has(eventKey)) return;
+    countedEvents.add(eventKey);
+    momentum.set(day, (momentum.get(day) ?? 0) + Math.max(0, value));
+  };
+
+  const goalRows = uniqueRowsById([
+    ...(input.goals ?? []),
+    ...input.dailyGoals,
+  ]);
+  goalRows.forEach((goal, index) => {
+    if (!isReachable('goal', goal.id)) return;
+    const date = goal.entryDate ?? goal.targetDate;
+    if (!date) return;
+    record(
+      'goal',
+      stringValue(goal.id) ?? String(index),
+      date,
+      goal.completed ? 1 : 0,
+    );
+  });
+
+  input.journals.forEach((journal, index) => {
+    if (!isReachable('journal_entry', journal.id)) return;
+    record(
+      'journal',
+      stringValue(journal.id) ?? String(index),
+      journal.entryDate,
+      1,
+    );
+  });
+
+  input.sessions.forEach((session, index) => {
+    if (!isReachable('learning_skill', session.skillId)) return;
+    record(
+      'learning-session',
+      stringValue(session.id) ?? String(index),
+      session.logDate,
+      1,
+    );
+  });
+
+  (input.transactions ?? []).forEach((transaction, index) => {
+    if (
+      !isReachable('finance_transaction', transaction.id) ||
+      (transaction.status &&
+        String(transaction.status).toLowerCase() !== 'confirmed')
+    ) {
+      return;
+    }
+    record(
+      'finance-transaction',
+      stringValue(transaction.id) ?? String(index),
+      transaction.transactionDate,
+      1,
+    );
+  });
+
+  (input.routineDayLogs ?? []).forEach((log, index) => {
+    if (!isReachable('routine', log.routineId)) return;
+    const completion =
+      log.completionPct == null ? null : toNumber(log.completionPct);
+    if (completion == null) return;
+    record(
+      'routine-day',
+      stringValue(log.id) ??
+        `${stringValue(log.routineId) ?? 'routine'}:${String(index)}`,
+      log.logDate,
+      Math.min(100, Math.max(0, completion)) / 100,
+    );
+  });
+
+  if (input.habitActivity) {
+    input.habitActivity.forEach((activity, index) => {
+      if (!isReachable('habit', activity.habitId)) return;
+      const date =
+        activity.checkinDate ??
+        activity.logDate ??
+        activity.completedOn ??
+        activity.entryDate;
+      record(
+        'habit-activity',
+        stringValue(activity.id) ?? String(index),
+        date,
+        habitActivityValue(activity),
+      );
+    });
+  } else {
+    input.habits.forEach((habit, index) => {
+      if (!isReachable('habit', habit.id)) return;
+      const streak = Math.max(
+        0,
+        Math.floor(toNumber(habit.currentStreak) ?? 0),
+      );
+      const lastCheckin = parseOptionalDate(habit.lastCheckin);
+      if (!lastCheckin) return;
+      for (let offset = 0; offset < streak; offset += 1) {
+        record(
+          'habit-streak',
+          `${stringValue(habit.id) ?? String(index)}:${offset}`,
+          addDays(lastCheckin, -offset),
+          1,
+        );
+      }
+    });
+  }
+
+  return momentum;
 }
 
 function overlappingPoints(
@@ -347,6 +535,40 @@ function directionPhrase(
   return coefficient >= 0 ? positive : negative;
 }
 
+function isNorthStarLevel(value: unknown) {
+  return ['north_star', 'one_year', 'five_year', 'someday', 'life'].includes(
+    String(value),
+  );
+}
+
+function habitActivityValue(row: Row) {
+  const completion =
+    row.completionPct == null ? null : toNumber(row.completionPct);
+  if (completion != null) {
+    return Math.min(100, Math.max(0, completion)) / 100;
+  }
+
+  const value = row.value == null ? null : toNumber(row.value);
+  if (value != null) return Math.max(0, value);
+  if (row.completed != null) return row.completed ? 1 : 0;
+
+  const status = String(row.status ?? '').toLowerCase();
+  return ['missed', 'not_done', 'skipped'].includes(status) ? 0 : 1;
+}
+
+function uniqueRowsById(rows: Row[]) {
+  const result: Row[] = [];
+  const seen = new Set<string>();
+  for (const row of rows) {
+    const id = stringValue(row.id);
+    if (!id || !seen.has(id)) {
+      result.push(row);
+      if (id) seen.add(id);
+    }
+  }
+  return result;
+}
+
 function average(values: number[]) {
   return values.length
     ? values.reduce((sum, value) => sum + value, 0) / values.length
@@ -386,4 +608,8 @@ function addDays(value: Date, days: number) {
 function toNumber(value: unknown) {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : null;
+}
+
+function stringValue(value: unknown) {
+  return typeof value === 'string' && value ? value : null;
 }

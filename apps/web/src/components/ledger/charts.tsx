@@ -98,8 +98,8 @@ export function SvgCanvasTrendChart({
 }) {
   const [hoverIndex, setHoverIndex] = useState<number | null>(null);
 
-  if (!data || !data.length) {
-    return <ChartPlaceholder>No data points logged to display trend chart.</ChartPlaceholder>;
+  if (!data || data.length < 2) {
+    return <ChartPlaceholder>Add more entries to see your trend</ChartPlaceholder>;
   }
 
   const values = data.map((d) => Number(d[valueKey] ?? 0));

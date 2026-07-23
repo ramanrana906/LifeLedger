@@ -5,7 +5,7 @@ import { AppLogoMark } from '@/components/app-logo';
 import { SignOutButton } from '@/components/sign-out-button';
 import { Dashboard, Row, normalizeDashboard } from '@/lib/ledger/types';
 import { tabs } from '@/lib/ledger/constants';
-import { Parchment } from '@/components/ledger/ui';
+import { Parchment, Modal } from '@/components/ledger/ui';
 import { NavIcon } from '@/components/ledger/nav-icon';
 
 // Modular Sections
@@ -24,17 +24,47 @@ export function LedgerDashboard({ name }: { name?: string | null }) {
   const [active, setActive] = useState('Today');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [undo, setUndo] = useState<{ type: string; id: string; label: string } | null>(null);
+  const [undo, setUndo] = useState<{
+    type: string;
+    id: string;
+    label: string;
+  } | null>(null);
+  const [alertModal, setAlertModal] = useState<{
+    title: string;
+    message: string;
+    tone?: 'brass' | 'danger' | 'warning';
+  } | null>(null);
   const undoTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   async function load() {
     setLoading(true);
-    const response = await fetch('/api/ledger/dashboard', { cache: 'no-store' });
+    const response = await fetch('/api/ledger/dashboard', {
+      cache: 'no-store',
+    });
     if (response.ok) setData(normalizeDashboard(await response.json()));
     setLoading(false);
   }
 
   async function action(type: string, payload: Row = {}) {
+    if (type === 'goal.toggle' && payload.id && data) {
+      setData((prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          goals: prev.goals.map((g) => (String(g.id) === String(payload.id) ? { ...g, completed: !g.completed } : g)),
+        };
+      });
+      fetch('/api/ledger/action', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type, payload }),
+      }).catch((err) => {
+        console.error('Failed to toggle goal:', err);
+        load();
+      });
+      return;
+    }
+
     setSaving(true);
     try {
       const res = await fetch('/api/ledger/action', {
@@ -47,13 +77,23 @@ export function LedgerDashboard({ name }: { name?: string | null }) {
         try {
           const body = await res.json();
           if (body?.message) msg = Array.isArray(body.message) ? body.message.join(', ') : String(body.message);
-        } catch { /* ignore parse error */ }
-        alert(`⚠️ Could not save: ${msg}`);
+        } catch {
+          /* ignore parse error */
+        }
+        setAlertModal({
+          title: 'Could Not Save',
+          message: msg,
+          tone: 'warning',
+        });
         setSaving(false);
         return;
       }
     } catch (err) {
-      alert(`⚠️ Network error: ${err instanceof Error ? err.message : 'Unknown error'}`);
+      setAlertModal({
+        title: 'Network Error',
+        message: err instanceof Error ? err.message : 'Unknown network error',
+        tone: 'danger',
+      });
       setSaving(false);
       return;
     }
@@ -62,7 +102,11 @@ export function LedgerDashboard({ name }: { name?: string | null }) {
 
     if (type.endsWith('.delete') && payload.id) {
       if (undoTimer.current) clearTimeout(undoTimer.current);
-      setUndo({ type: type.replace('.delete', '.restore'), id: String(payload.id), label: String(payload.label ?? 'Entry') });
+      setUndo({
+        type: type.replace('.delete', '.restore'),
+        id: String(payload.id),
+        label: String(payload.label ?? 'Entry'),
+      });
       undoTimer.current = setTimeout(() => setUndo(null), 7000);
     }
   }
@@ -94,26 +138,23 @@ export function LedgerDashboard({ name }: { name?: string | null }) {
   const xpToNext = Math.max((data?.stats?.level ?? 1) * 100, 100);
   const xp = data?.stats?.xp ?? 0;
   const xpPct = Math.min(100, Math.round((xp / xpToNext) * 100));
-  const initials = (name ?? 'LL').split(/\s|@/).filter(Boolean).slice(0, 2).map((part) => part[0]?.toUpperCase()).join('') || 'LL';
+  const initials =
+    (name ?? 'LL')
+      .split(/\s|@/)
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((part) => part[0]?.toUpperCase())
+      .join('') || 'LL';
   const firstName = name?.split(/\s|@/).filter(Boolean)[0] ?? 'Raman';
 
   return (
     <div className="min-h-screen bg-background text-foreground md:flex">
       {/* Mobile Backdrop */}
-      {sidebarOpen && (
-        <div
-          onClick={() => setSidebarOpen(false)}
-          className="fixed inset-0 z-40 bg-slate-950/60 backdrop-blur-xs transition-opacity md:hidden"
-        />
-      )}
+      {sidebarOpen && <div onClick={() => setSidebarOpen(false)} className="fixed inset-0 z-40 bg-slate-950/60 backdrop-blur-xs transition-opacity md:hidden" />}
 
       {/* Sidebar Drawer */}
       <aside
-        className={`fixed inset-y-0 left-0 z-50 flex h-full flex-col bg-[var(--sidebar)] text-white shadow-2xl transition-all duration-300 ease-in-out md:sticky md:top-0 md:h-screen md:shadow-none ${
-          sidebarOpen
-            ? 'translate-x-0 w-[260px] md:w-[260px] md:opacity-100 md:pointer-events-auto'
-            : '-translate-x-full md:translate-x-0 md:w-0 md:opacity-0 md:pointer-events-none overflow-hidden'
-        }`}
+        className={`fixed inset-y-0 left-0 z-50 flex h-full flex-col bg-[var(--sidebar)] text-white shadow-2xl transition-all duration-300 ease-in-out md:sticky md:top-0 md:h-screen md:shadow-none ${sidebarOpen ? 'translate-x-0 w-[260px] md:w-[260px] md:opacity-100 md:pointer-events-auto' : '-translate-x-full md:translate-x-0 md:w-0 md:opacity-0 md:pointer-events-none overflow-hidden'}`}
       >
         <div className="flex shrink-0 items-center justify-between border-b border-white/10 p-5">
           <div className="flex items-center gap-3">
@@ -145,11 +186,7 @@ export function LedgerDashboard({ name }: { name?: string | null }) {
                   setSidebarOpen(false);
                 }
               }}
-              className={`flex min-h-11 w-full items-center gap-3 whitespace-nowrap rounded-xl px-3 py-2.5 text-left text-sm font-medium transition ${
-                active === tab.key
-                  ? 'bg-[#EEF2FF] text-[#4338CA] font-semibold shadow-sm'
-                  : 'text-slate-400 hover:bg-white/10 hover:text-white active:scale-[0.99]'
-              }`}
+              className={`flex min-h-11 w-full items-center gap-3 whitespace-nowrap rounded-xl px-3 py-2.5 text-left text-sm font-medium transition ${active === tab.key ? 'bg-[#EEF2FF] text-[#4338CA] font-semibold shadow-sm' : 'text-slate-400 hover:bg-white/10 hover:text-white active:scale-[0.99]'}`}
             >
               <NavIcon name={tab.icon} className={`h-4 w-4 shrink-0 ${active === tab.key ? 'text-[#4338CA]' : 'text-slate-400'}`} />
               <span className="truncate">{tab.key}</span>
@@ -160,9 +197,7 @@ export function LedgerDashboard({ name }: { name?: string | null }) {
         {/* Profile Footer */}
         <div className="shrink-0 border-t border-white/10 bg-slate-900/60 p-4">
           <div className="mb-3 flex items-center gap-3">
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#4F46E5] text-sm font-semibold text-white ring-2 ring-white/10">
-              {initials}
-            </div>
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#4F46E5] text-sm font-semibold text-white ring-2 ring-white/10">{initials}</div>
             <div className="min-w-0">
               <div className="truncate text-sm font-medium text-white">{name ?? 'Life Ledger'}</div>
               <div className="text-xs text-slate-400">Signed in</div>
@@ -179,10 +214,10 @@ export function LedgerDashboard({ name }: { name?: string | null }) {
               type="button"
               onClick={() => setSidebarOpen((prev) => !prev)}
               className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-rule bg-card text-slate-700 shadow-sm transition hover:border-brass hover:bg-indigo-50/50 hover:text-brass active:scale-95"
-              title={sidebarOpen ? "Hide sidebar navigation" : "Open sidebar navigation"}
+              title={sidebarOpen ? 'Hide sidebar navigation' : 'Open sidebar navigation'}
               aria-label="Toggle sidebar drawer"
             >
-              <NavIcon name={sidebarOpen ? "chevronLeft" : "menu"} className="h-5 w-5" />
+              <NavIcon name={sidebarOpen ? 'chevronLeft' : 'menu'} className="h-5 w-5" />
             </button>
 
             <div className="mr-auto min-w-48">
@@ -198,7 +233,9 @@ export function LedgerDashboard({ name }: { name?: string | null }) {
             <div className="hidden min-w-48 rounded-2xl border bg-card px-4 py-3 shadow-sm xl:block">
               <div className="mb-2 flex items-center justify-between text-xs text-[var(--muted)]">
                 <span>Level {data?.stats?.level ?? 1}</span>
-                <span>{xp}/{xpToNext} XP</span>
+                <span>
+                  {xp}/{xpToNext} XP
+                </span>
               </div>
               <div className="h-2 overflow-hidden rounded-full bg-rule">
                 <div className="h-full rounded-full bg-brass transition-all" style={{ width: `${xpPct}%` }} />
@@ -206,16 +243,21 @@ export function LedgerDashboard({ name }: { name?: string | null }) {
             </div>
 
             <div className="ml-auto flex items-center gap-2">
-              <button type="button" className="flex h-11 w-11 items-center justify-center rounded-2xl border bg-card text-[var(--muted)] shadow-sm transition hover:border-brass hover:text-brass active:scale-95" aria-label="Notifications">
+              <button
+                type="button"
+                className="flex h-11 w-11 items-center justify-center rounded-2xl border bg-card text-[var(--muted)] shadow-sm transition hover:border-brass hover:text-brass active:scale-95"
+                aria-label="Notifications"
+              >
                 <NavIcon name="bell" className="h-4 w-4" />
               </button>
-              <button type="button" className="hidden min-h-11 items-center gap-2 rounded-2xl border border-[#8B5CF6]/25 bg-gradient-to-r from-[#8B5CF6] to-[#6366F1] px-4 text-sm font-semibold text-white shadow-[0_12px_28px_rgba(99,102,241,0.24)] transition hover:scale-[1.01] md:inline-flex">
+              <button
+                type="button"
+                className="hidden min-h-11 items-center gap-2 rounded-2xl border border-[#8B5CF6]/25 bg-gradient-to-r from-[#8B5CF6] to-[#6366F1] px-4 text-sm font-semibold text-white shadow-[0_12px_28px_rgba(99,102,241,0.24)] transition hover:scale-[1.01] md:inline-flex"
+              >
                 <NavIcon name="sparkles" className="h-4 w-4" />
                 AI Assistant
               </button>
-              <div className="flex h-11 w-11 items-center justify-center rounded-full bg-brass text-sm font-semibold text-white shadow-sm">
-                {initials}
-              </div>
+              <div className="flex h-11 w-11 items-center justify-center rounded-full bg-brass text-sm font-semibold text-white shadow-sm">{initials}</div>
             </div>
 
             <div className="flex w-full items-center gap-3 text-sm text-[var(--muted)] lg:hidden">
@@ -259,6 +301,9 @@ export function LedgerDashboard({ name }: { name?: string | null }) {
           </div>
         </div>
       )}
+      <Modal isOpen={Boolean(alertModal)} onClose={() => setAlertModal(null)} title={alertModal?.title ?? 'Notice'} tone={alertModal?.tone ?? 'warning'} cancelText={null} actionText="Close">
+        {alertModal?.message}
+      </Modal>
     </div>
   );
 }

@@ -64,9 +64,9 @@ export function SubTabs<T extends string>({
 
 export function Stat({ label, value, tone = 'text-brass' }: { label: string; value: React.ReactNode; tone?: string }) {
   return (
-    <div>
-      <div className="label-caps">{label}</div>
-      <div className={`stat-number mt-1 font-semibold tabular-nums ${tone}`}>{value}</div>
+    <div className="min-w-0 rounded-2xl border border-rule/80 bg-card/60 p-3.5 shadow-2xs">
+      <div className="label-caps truncate">{label}</div>
+      <div className={`stat-number mt-1 truncate font-semibold tabular-nums ${tone}`} title={typeof value === 'string' ? value : undefined}>{value}</div>
     </div>
   );
 }
@@ -211,6 +211,85 @@ export function RangeToggle({ value, onChange }: { value: number; onChange: (val
           {item === 9999 ? 'All' : `${item}d`}
         </button>
       ))}
+    </div>
+  );
+}
+
+// ── Modal Component ──────────────────────────────────────────────────────────
+
+export function Modal({
+  isOpen,
+  onClose,
+  title,
+  children,
+  actionText = 'Confirm',
+  cancelText = 'Cancel',
+  onConfirm,
+  tone = 'brass',
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+  title: string;
+  children: React.ReactNode;
+  actionText?: string;
+  cancelText?: string | null;
+  onConfirm?: () => void;
+  tone?: 'brass' | 'danger' | 'warning';
+}) {
+  if (!isOpen) return null;
+
+  const btnTone = {
+    brass: 'bg-brass hover:bg-brass-deep text-white',
+    danger: 'bg-red-600 hover:bg-red-500 text-white',
+    warning: 'bg-amber-600 hover:bg-amber-500 text-white',
+  }[tone];
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 backdrop-blur-xs p-4 animate-in fade-in duration-200">
+      <div className="w-full max-w-md rounded-3xl border border-rule bg-card p-6 shadow-2xl space-y-4">
+        <div className="flex items-center justify-between border-b pb-3">
+          <h3 className="text-base font-bold text-ink">{title}</h3>
+          <button
+            type="button"
+            onClick={onClose}
+            className="flex h-7 w-7 items-center justify-center rounded-xl border border-rule text-xs font-bold text-slate-400 hover:bg-slate-100 hover:text-ink transition"
+          >
+            ✕
+          </button>
+        </div>
+        <div className="text-xs leading-relaxed text-slate-600">{children}</div>
+        <div className="flex items-center justify-end gap-2 border-t pt-3">
+          {cancelText ? (
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-xl border border-rule bg-background px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 transition active:scale-95"
+            >
+              {cancelText}
+            </button>
+          ) : null}
+          {onConfirm ? (
+            <button
+              type="button"
+              onClick={() => {
+                onConfirm();
+                onClose();
+              }}
+              className={`rounded-xl px-4 py-2 text-xs font-semibold shadow-xs transition active:scale-95 ${btnTone}`}
+            >
+              {actionText}
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={onClose}
+              className={`rounded-xl px-4 py-2 text-xs font-semibold shadow-xs transition active:scale-95 ${btnTone}`}
+            >
+              OK
+            </button>
+          )}
+        </div>
+      </div>
     </div>
   );
 }

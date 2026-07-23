@@ -1,11 +1,10 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Dashboard, Row } from '@/lib/ledger/types';
 import { moods, colors, moduleOptions } from '@/lib/ledger/constants';
 import {
   dateKey,
-  daysBack,
   financeTotalsForMonth,
   daysLoggedThisWeek,
   moduleCountsByDay,
@@ -14,25 +13,33 @@ import {
   navigateTo,
   currentFocusGoal,
   descendantGoalIds,
+  dismissedLinkSuggestionKeys,
   goalDefinition,
   routineAppliesNow,
   routineAnchorLabel,
   routineStepTypeLabel,
   routineStepTargetLabel,
+  entityDomId,
+  focusEntityInView,
+  getLinkedEntities,
+  listenForEntityNavigation,
+  navigateToEntity,
+  rememberDismissedLinkSuggestion,
 } from '@/lib/ledger/utils';
 import { Parchment, Stat, Field, TextArea, ProgressBar, ListItem, Empty } from '@/components/ledger/ui';
 import { NavIcon } from '@/components/ledger/nav-icon';
 import { Heatmap } from '@/components/ledger/charts';
 import { PatternsPanel } from './review';
 import { ask } from '@/lib/ledger/utils';
+import { EntityConnections } from '@/components/ledger/entity-connections';
 
 type ActionFn = (type: string, payload?: Row) => Promise<void>;
 
 export function Today({ data, action, saving }: { data: Dashboard; action: ActionFn; saving: boolean }) {
   const [mood, setMood] = useState(data.journal?.mood ?? 'Steady');
   const [body, setBody] = useState(data.journal?.body ?? '');
-  const [taggedGoalIds, setTaggedGoalIds] = useState<string[]>(() => (data.journal?.goalTags ?? []).map((row: Row) => String(row.goalId)));
-  const [taggedHabitIds, setTaggedHabitIds] = useState<string[]>(() => (data.journal?.habitTags ?? []).map((row: Row) => String(row.habitId)));
+  const [expandedJournalId, setExpandedJournalId] = useState('');
+  const [dismissedLinkSuggestions, setDismissedLinkSuggestions] = useState<Set<string>>(dismissedLinkSuggestionKeys);
   const [goal, setGoal] = useState('');
   const xpToNext = Math.max((data.stats?.level ?? 1) * 100, 100);
   const xp = data.stats?.xp ?? 0;
@@ -41,65 +48,180 @@ export function Today({ data, action, saving }: { data: Dashboard; action: Actio
   const debtPaidThisMonth = financeTotalsForMonth(data).debtPaid;
   const cycleDaysLeft = data.focusCycle?.endDate ? Math.ceil((new Date(String(data.focusCycle.endDate)).getTime() - new Date(data.today).getTime()) / 86400000) : null;
   const todayGoals = data.goals.filter((item) => item.level === 'daily' && dateKey(item.targetDate) === data.today);
-  const todayGoalIds = new Set(todayGoals.map((item) => String(item.id)));
-  const workGoalOptions = data.goals.filter((item) => todayGoalIds.has(String(item.id)) || item.level === 'weekly');
-  const workHabitOptions = data.habits.filter((item) => item.kind === 'break' || item.lastCheckin !== data.today);
-  const toggleTag = (kind: 'goal' | 'habit', id: string) => {
-    const setter = kind === 'goal' ? setTaggedGoalIds : setTaggedHabitIds;
-    setter((current) => (current.includes(id) ? current.filter((item) => item !== id) : [...current, id]));
-  };
+
+  const pendingIncomes = data.transactions.filter((item) => item.type === 'income' && item.status === 'predicted' && !item.deletedAt);
+
+  const suggestedLearningLinks = (data.linkSuggestions?.journalLearning ?? []).filter((suggestion) => !dismissedLinkSuggestions.has(`journal:${suggestion.journalEntryId}:${suggestion.skillId}`));
+
+  const pendingJournalTarget = typeof window === 'undefined' ? null : data.journalEntries.find((item) => String(item.id) === expandedJournalId);
+  const journalHistory = [...data.journalEntries]
+    .filter((item) => String(item.id) !== String(data.journal?.id ?? ''))
+    .reverse()
+    .slice(0, 8);
+  if (pendingJournalTarget && !journalHistory.some((item) => String(item.id) === String(pendingJournalTarget.id)) && String(pendingJournalTarget.id) !== String(data.journal?.id ?? '')) {
+    journalHistory.push(pendingJournalTarget);
+  }
+
+  useEffect(
+    () =>
+      listenForEntityNavigation((target) => {
+        if (target.entityType !== 'journal_entry') return;
+        if (!data.journalEntries.some((item) => String(item.id) === target.entityId)) return;
+        setExpandedJournalId(target.entityId);
+        focusEntityInView(target);
+      }),
+    [data.journalEntries],
+  );
 
   return (
     <div className="space-y-5">
+      {suggestedLearningLinks.map((suggestion) => {
+        const suggestionKey = `journal:${suggestion.journalEntryId}:${suggestion.skillId}`;
+        return (
+          <div key={suggestionKey} className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-brass/30 bg-brass/10 p-4 text-ink shadow-2xs">
+            <div className="flex items-center gap-3">
+              <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-brass/20 text-brass">
+                <NavIcon name="bookOpen" className="h-5 w-5" />
+              </div>
+              <div>
+                <div className="font-bold text-sm">Suggested Link</div>
+                <div className="text-xs text-[var(--muted)]">
+                  Link the {suggestion.logDate ? dateKey(suggestion.logDate) : 'matching'} journal entry to <span className="font-semibold text-brass">{suggestion.skillName}</span>?
+                </div>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() =>
+                  action('entityLink.add', {
+                    sourceType: 'journal_entry',
+                    sourceId: suggestion.journalEntryId,
+                    targetType: 'learning_skill',
+                    targetId: suggestion.skillId,
+                    relationshipType: 'linked',
+                  })
+                }
+                className="rounded-xl bg-brass px-3.5 py-1.5 text-xs font-semibold text-white shadow-xs transition hover:bg-brass/90 active:scale-95"
+              >
+                Link ✓
+              </button>
+              <button
+                type="button"
+                onClick={() =>
+                  setDismissedLinkSuggestions((current) => {
+                    const next = new Set(current);
+                    next.add(suggestionKey);
+                    rememberDismissedLinkSuggestion(suggestionKey);
+                    return next;
+                  })
+                }
+                className="rounded-xl border bg-card px-3 py-1.5 text-xs font-semibold text-[var(--muted)] transition hover:text-ink"
+              >
+                Dismiss
+              </button>
+            </div>
+          </div>
+        );
+      })}
+      {pendingIncomes.map((inc) => (
+        <div key={inc.id} className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-amber-300 bg-amber-50/90 p-4 text-amber-900 shadow-2xs">
+          <div className="flex items-center gap-3">
+            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-amber-200 text-amber-800">
+              <NavIcon name="coins" className="h-5 w-5" />
+            </div>
+            <div>
+              <div className="font-bold text-sm">
+                {inc.note?.replace('Predicted income: ', '') || 'Income'} ₹{Number(inc.amount).toLocaleString('en-IN')} expected today
+              </div>
+              <div className="text-xs text-amber-700">Predicted recurring income for {dateKey(inc.transactionDate)}</div>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => action('transaction.confirm', { id: inc.id })}
+              className="rounded-xl bg-amber-600 px-3.5 py-1.5 text-xs font-semibold text-white shadow-xs transition hover:bg-amber-700 active:scale-95"
+            >
+              Confirm ✓
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                const newAmount = ask('Adjust Income Amount (₹)', String(inc.amount));
+                if (!newAmount) return;
+                action('transaction.update', {
+                  id: inc.id,
+                  amount: newAmount,
+                  status: 'edited',
+                });
+              }}
+              className="rounded-xl border border-amber-300 bg-white px-3 py-1.5 text-xs font-semibold text-amber-900 transition hover:bg-amber-100 active:scale-95"
+            >
+              Edit
+            </button>
+          </div>
+        </div>
+      ))}
+
       {cycleDaysLeft != null && cycleDaysLeft <= 5 ? (
         <div className="rounded-2xl border border-brass/30 bg-brass/10 px-4 py-3 text-sm text-ink">
           This focus cycle ends in <span className="font-semibold tabular-nums text-brass">{Math.max(cycleDaysLeft, 0)} days</span>. Visit Settings to choose the next North Star when you are ready.
         </div>
       ) : null}
 
-      <Parchment title="Today's Entry" eyebrow={new Date().toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' })}>
-        <div className="flex flex-wrap gap-2">
-          {moods.map((item) => (
-            <button key={item} onClick={() => setMood(item)} className={`rounded-xl border px-3 py-1.5 text-sm transition duration-200 active:scale-95 ${mood === item ? 'border-brass bg-brass text-white shadow-sm' : 'hover:border-brass hover:bg-brass/5 hover:text-brass'}`}>
-              {item}
-            </button>
-          ))}
-        </div>
-        <div className="mt-3">
-          <div className="mb-2 text-xs font-medium text-[var(--muted)]">Worked on</div>
-          <div className="flex flex-wrap gap-1.5">
-            {[...workGoalOptions, ...workHabitOptions].length === 0 ? <span className="text-xs text-[var(--muted)]">No active goals or due habits today.</span> : null}
-            {workGoalOptions.map((item) => (
+      <div id={data.journal?.id ? entityDomId('journal_entry', String(data.journal.id)) : undefined} className="transition">
+        <Parchment
+          title="Today's Entry"
+          eyebrow={new Date().toLocaleDateString(undefined, {
+            weekday: 'long',
+            month: 'long',
+            day: 'numeric',
+          })}
+        >
+          <div className="flex flex-wrap gap-2">
+            {moods.map((item) => (
               <button
-                key={`goal-${item.id}`}
-                type="button"
-                onClick={() => toggleTag('goal', String(item.id))}
-                className={`rounded-full border px-2.5 py-1 text-xs transition active:scale-95 ${taggedGoalIds.includes(String(item.id)) ? 'border-brass bg-brass text-white' : 'bg-card text-[var(--muted)] hover:border-brass hover:text-brass'}`}
+                key={item}
+                onClick={() => setMood(item)}
+                className={`rounded-xl border px-3 py-1.5 text-sm transition duration-200 active:scale-95 ${mood === item ? 'border-brass bg-brass text-white shadow-sm' : 'hover:border-brass hover:bg-brass/5 hover:text-brass'}`}
               >
-                {item.title}
-              </button>
-            ))}
-            {workHabitOptions.map((item) => (
-              <button
-                key={`habit-${item.id}`}
-                type="button"
-                onClick={() => toggleTag('habit', String(item.id))}
-                className={`rounded-full border px-2.5 py-1 text-xs transition active:scale-95 ${taggedHabitIds.includes(String(item.id)) ? 'border-brass bg-brass text-white' : 'bg-card text-[var(--muted)] hover:border-brass hover:text-brass'}`}
-              >
-                {item.name}
+                {item}
               </button>
             ))}
           </div>
-        </div>
-        <TextArea value={body} onChange={(event) => setBody(event.target.value)} placeholder="Write today's entry..." className={body.trim() ? 'mt-4 min-h-36' : 'mt-4'} />
-        <div className="mt-4 flex items-center justify-between gap-3">
-          <span className="text-sm italic text-[var(--muted)]">{data.journal ? 'Entry started' : '+10 XP for first entry today'}</span>
-          <div className="flex gap-2">
-            {data.journal?.id ? <button disabled={saving} className="btn" onClick={() => action('journal.delete', { id: data.journal?.id, label: 'Journal entry' })}>Delete</button> : null}
-            <button disabled={saving} className="btn btn-primary" onClick={() => action('journal.save', { mood, body, goalIds: taggedGoalIds, habitIds: taggedHabitIds })}>Save entry</button>
+          <TextArea value={body} onChange={(event) => setBody(event.target.value)} placeholder="Write today's entry..." className={body.trim() ? 'mt-4 min-h-36' : 'mt-4'} />
+          <div className="mt-4 flex items-center justify-between gap-3">
+            <span className="text-sm italic text-[var(--muted)]">{data.journal ? 'Entry started' : '+10 XP for first entry today'}</span>
+            <div className="flex gap-2">
+              {data.journal?.id ? (
+                <button
+                  disabled={saving}
+                  className="btn"
+                  onClick={() =>
+                    action('journal.delete', {
+                      id: data.journal?.id,
+                      label: 'Journal entry',
+                    })
+                  }
+                >
+                  Delete
+                </button>
+              ) : null}
+              <button disabled={saving} className="btn btn-primary" onClick={() => action('journal.save', { mood, body })}>
+                Save entry
+              </button>
+            </div>
           </div>
-        </div>
-      </Parchment>
+          {data.journal?.id ? (
+            <EntityConnections data={data} entityType="journal_entry" entityId={String(data.journal.id)} action={action} />
+          ) : (
+            <div className="mt-4 rounded-xl border border-dashed bg-background/60 px-3 py-2 text-xs text-[var(--muted)]">
+              Save the entry once, then use Connections to link it to any goal, habit, routine, skill, or finance record.
+            </div>
+          )}
+        </Parchment>
+      </div>
 
       <div className="grid gap-6 xl:grid-cols-[1.45fr_0.8fr]">
         <CurrentFocusPanel data={data} action={action} />
@@ -115,7 +237,9 @@ export function Today({ data, action, saving }: { data: Dashboard; action: Actio
         <div className="stat-card border-l-4 border-l-moss p-5">
           <div className="label-caps mb-2">Level {data.stats?.level ?? 1}</div>
           <ProgressBar value={xp} max={xpToNext} />
-          <div className="mt-1 text-xs text-[var(--muted)]">{xp}/{xpToNext} XP</div>
+          <div className="mt-1 text-xs text-[var(--muted)]">
+            {xp}/{xpToNext} XP
+          </div>
         </div>
         <div className="stat-card border-l-4 border-l-[#06B6D4] p-5">
           <Stat label="Days logged" value={`${daysLoggedThisWeek(data)}/7`} tone="text-moss" />
@@ -123,7 +247,11 @@ export function Today({ data, action, saving }: { data: Dashboard; action: Actio
         <div className="stat-card border-l-4 border-l-wax p-5">
           <Stat
             label={latestWeight && previousWeight ? 'Weight trend' : 'Debt paid'}
-            value={latestWeight && previousWeight ? `${Number(latestWeight) <= Number(previousWeight) ? '↓' : '↑'} ${Math.abs(Number(latestWeight) - Number(previousWeight)).toFixed(1)}` : Number(debtPaidThisMonth).toFixed(0)}
+            value={
+              latestWeight && previousWeight
+                ? `${Number(latestWeight) <= Number(previousWeight) ? '↓' : '↑'} ${Math.abs(Number(latestWeight) - Number(previousWeight)).toFixed(1)}`
+                : Number(debtPaidThisMonth).toFixed(0)
+            }
             tone={latestWeight && previousWeight && Number(latestWeight) > Number(previousWeight) ? 'text-wax' : 'text-moss'}
           />
         </div>
@@ -148,17 +276,38 @@ export function Today({ data, action, saving }: { data: Dashboard; action: Actio
 
         <Parchment title="Journal History" eyebrow="Recent entries">
           {data.journalEntries.length === 0 ? <Empty tone="ink">No journal entries yet.</Empty> : null}
-          {[...data.journalEntries].reverse().slice(0, 8).map((item) => (
-            <ListItem
-              key={item.id}
-              title={`${item.entryDate} · ${item.mood}`}
-              note={String(item.body ?? '').slice(0, 120)}
-              onEdit={() => {
-                const nextBody = ask('Edit journal entry', item.body);
-                if (nextBody != null) action('journal.update', { id: item.id, mood: item.mood, body: nextBody });
-              }}
-              onDelete={() => action('journal.delete', { id: item.id, label: 'Journal entry' })}
-            />
+          {journalHistory.map((item) => (
+            <div id={entityDomId('journal_entry', String(item.id))} key={item.id} className="transition">
+              <ListItem
+                title={`${item.entryDate} · ${item.mood}`}
+                note={String(item.body ?? '').slice(0, 120)}
+                right={
+                  <button
+                    type="button"
+                    className="rounded px-2 py-1 text-xs font-medium text-brass hover:bg-brass hover:text-white"
+                    onClick={() => setExpandedJournalId(expandedJournalId === String(item.id) ? '' : String(item.id))}
+                  >
+                    {expandedJournalId === String(item.id) ? 'Hide connections' : 'Connections'}
+                  </button>
+                }
+                onEdit={() => {
+                  const nextBody = ask('Edit journal entry', item.body);
+                  if (nextBody != null)
+                    action('journal.update', {
+                      id: item.id,
+                      mood: item.mood,
+                      body: nextBody,
+                    });
+                }}
+                onDelete={() =>
+                  action('journal.delete', {
+                    id: item.id,
+                    label: 'Journal entry',
+                  })
+                }
+              />
+              {expandedJournalId === String(item.id) ? <EntityConnections data={data} entityType="journal_entry" entityId={String(item.id)} action={action} compact /> : null}
+            </div>
           ))}
         </Parchment>
       </div>
@@ -168,7 +317,12 @@ export function Today({ data, action, saving }: { data: Dashboard; action: Actio
           <form
             onSubmit={(event) => {
               event.preventDefault();
-              if (goal.trim()) action('goal.add', { title: goal.trim(), level: 'daily', targetDate: data.today }).then(() => setGoal(''));
+              if (goal.trim())
+                action('goal.add', {
+                  title: goal.trim(),
+                  level: 'daily',
+                  targetDate: data.today,
+                }).then(() => setGoal(''));
             }}
             className="mb-4 flex gap-2"
           >
@@ -181,10 +335,20 @@ export function Today({ data, action, saving }: { data: Dashboard; action: Actio
               key={item.id}
               title={item.title}
               muted={item.completed}
-              right={<button className={`btn ${item.completed ? 'check-pop border-moss bg-moss text-white' : ''}`} onClick={() => action('goal.toggle', { id: item.id })}>{item.completed ? 'Undo' : 'Done'}</button>}
+              right={
+                <button className={`btn ${item.completed ? 'check-pop border-moss bg-moss text-white' : ''}`} onClick={() => action('goal.toggle', { id: item.id })}>
+                  {item.completed ? 'Undo' : 'Done'}
+                </button>
+              }
               onEdit={() => {
                 const title = ask('Edit daily goal', item.title);
-                if (title) action('goal.update', { id: item.id, title, targetDescription: item.targetDescription ?? '', targetDate: item.targetDate ?? data.today });
+                if (title)
+                  action('goal.update', {
+                    id: item.id,
+                    title,
+                    targetDescription: item.targetDescription ?? '',
+                    targetDate: item.targetDate ?? data.today,
+                  });
               }}
               onDelete={() => action('goal.delete', { id: item.id, label: 'Daily goal' })}
             />
@@ -202,7 +366,9 @@ function TodayRoutines({ data, action }: { data: Dashboard; action: ActionFn }) 
   if (data.routines.length === 0) return null;
 
   const openStepTarget = (step: Row) => {
-    if (step.actionTab === 'Finance') navigateTo('Finance', { financeTab: 'Transactions' });
+    if (step.targetType && step.targetId) {
+      navigateToEntity(step.targetType, String(step.targetId));
+    } else if (step.actionTab === 'Finance') navigateTo('Finance', { financeTab: 'Transactions' });
     else if (step.actionTab === 'Learning') navigateTo('Learning', { learningTab: 'Sessions' });
     else if (step.actionTab === 'Today') navigateTo('Today');
   };
@@ -243,11 +409,17 @@ function TodayRoutines({ data, action }: { data: Dashboard; action: ActionFn }) 
                     }}
                     className={`flex w-full items-center gap-3 rounded-2xl border px-3 py-2 text-left text-sm transition active:scale-[0.99] ${done ? 'border-moss/30 bg-moss/10 text-ink' : 'bg-card text-ink hover:border-brass hover:text-brass'} ${step.readOnly && !done ? 'border-dashed' : ''}`}
                   >
-                    <span className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-md border text-xs ${done ? 'border-moss bg-moss text-white' : 'border-rule bg-background text-transparent'}`}>✓</span>
+                    <span
+                      className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-md border text-xs ${done ? 'border-moss bg-moss text-white' : 'border-rule bg-background text-transparent'}`}
+                    >
+                      ✓
+                    </span>
                     <span className="min-w-0 flex-1">
                       <span className={done ? 'font-medium line-through decoration-moss/60' : 'font-medium'}>{step.stepName}</span>
                       <span className="mt-0.5 block text-xs text-[var(--muted)]">
-                        {routineStepTypeLabel(String(step.stepType))}{targetLabel ? ` · ${targetLabel}` : ''}{step.readOnly && !done ? ' · open to log' : ''}
+                        {routineStepTypeLabel(String(step.stepType))}
+                        {targetLabel ? ` · ${targetLabel}` : ''}
+                        {step.readOnly && !done ? ' · open to log' : ''}
                       </span>
                     </span>
                   </button>
@@ -277,9 +449,7 @@ function AIInsightCard({ data }: { data: Dashboard }) {
           AI Insight
         </div>
         <h2 className="text-[22px] font-semibold leading-tight tracking-tight">Today&apos;s signal</h2>
-        <p className="mt-3 text-sm leading-6 text-white/86">
-          {pattern ? String(pattern.sentence) : fallback}
-        </p>
+        <p className="mt-3 text-sm leading-6 text-white/86">{pattern ? String(pattern.sentence) : fallback}</p>
         <div className="mt-5 flex flex-wrap gap-2 text-xs text-white/80">
           <span className="rounded-full border border-white/20 bg-white/10 px-3 py-1 backdrop-blur">Weekly refresh</span>
           <span className="rounded-full border border-white/20 bg-white/10 px-3 py-1 backdrop-blur">Private data</span>
@@ -290,18 +460,40 @@ function AIInsightCard({ data }: { data: Dashboard }) {
 }
 
 function ExecutiveSnapshots({ data }: { data: Dashboard }) {
-  const weeklyMinutes = data.sessions
-    .filter((row) => new Date(row.logDate).getTime() >= new Date(data.weekStart).getTime())
-    .reduce((sum, row) => sum + Number(row.minutes), 0);
+  const weeklyMinutes = data.sessions.filter((row) => new Date(row.logDate).getTime() >= new Date(data.weekStart).getTime()).reduce((sum, row) => sum + Number(row.minutes), 0);
   const habitCompletion = data.habits.length
     ? Math.round((data.habits.filter((row) => row.lastCheckin === data.today || (row.kind === 'break' && row.lastSlip !== data.today)).length / data.habits.length) * 100)
     : 0;
   const latestWeight = data.weights.at(-1)?.weight;
   const cards = [
-    { label: 'Finance Snapshot', value: totalLiabilities(data).toFixed(0), note: 'current liabilities', icon: 'coins', color: '#16A34A' },
-    { label: 'Health Snapshot', value: latestWeight ? Number(latestWeight).toFixed(1) : '-', note: data.workouts.length ? `${data.workouts.length} workouts logged` : 'no recent workouts', icon: 'heart', color: '#EF4444' },
-    { label: 'Learning Progress', value: `${Math.round(weeklyMinutes / 60)}h`, note: `${studyStreak(data)} day study streak`, icon: 'book', color: '#06B6D4' },
-    { label: 'Habit Progress', value: `${habitCompletion}%`, note: 'today completion', icon: 'repeat', color: '#10B981' },
+    {
+      label: 'Finance Snapshot',
+      value: totalLiabilities(data).toFixed(0),
+      note: 'current liabilities',
+      icon: 'coins',
+      color: '#16A34A',
+    },
+    {
+      label: 'Health Snapshot',
+      value: latestWeight ? Number(latestWeight).toFixed(1) : '-',
+      note: data.workouts.length ? `${data.workouts.length} workouts logged` : 'no recent workouts',
+      icon: 'heart',
+      color: '#EF4444',
+    },
+    {
+      label: 'Learning Progress',
+      value: `${Math.round(weeklyMinutes / 60)}h`,
+      note: `${studyStreak(data)} day study streak`,
+      icon: 'book',
+      color: '#06B6D4',
+    },
+    {
+      label: 'Habit Progress',
+      value: `${habitCompletion}%`,
+      note: 'today completion',
+      icon: 'repeat',
+      color: '#10B981',
+    },
   ];
 
   return (
@@ -339,7 +531,9 @@ function CurrentFocusPanel({ data, action }: { data: Dashboard; action: ActionFn
             <h2 className="text-xl font-semibold text-ink">No active focus goal</h2>
             <p className="mt-1 text-sm text-[var(--muted)]">Set one in Cycle Settings to connect your weekly goal, daily goals, and linked habits here.</p>
           </div>
-          <button type="button" className="btn btn-primary" onClick={() => navigateTo('Settings')}>Cycle Settings</button>
+          <button type="button" className="btn btn-primary" onClick={() => navigateTo('Settings')}>
+            Cycle Settings
+          </button>
         </div>
       </section>
     );
@@ -348,13 +542,20 @@ function CurrentFocusPanel({ data, action }: { data: Dashboard; action: ActionFn
   const weeklyGoals = data.goals.filter((goal) => ids.has(goal.id) && goal.level === 'weekly');
   const activeWeekly = weeklyGoals.find((goal) => !goal.completed) ?? weeklyGoals[0] ?? null;
   const dailyGoals = data.goals.filter((goal) => ids.has(goal.id) && goal.level === 'daily' && dateKey(goal.targetDate) === data.today);
-  const habits = data.habits.filter((habit) => habit.linkedGoalId && ids.has(String(habit.linkedGoalId)));
+  const linkedHabitIds = new Set(
+    [...ids].flatMap((goalId) =>
+      getLinkedEntities(data, 'goal', String(goalId))
+        .filter((connection) => connection.entityType === 'habit')
+        .map((connection) => connection.entityId),
+    ),
+  );
+  const habits = data.habits.filter((habit) => linkedHabitIds.has(String(habit.id)));
   return (
     <section className="parchment overflow-hidden border-t-4 border-t-brass bg-brass/5 p-0">
       <div className="p-5 md:p-6">
         <div className="label-caps mb-2">Current Focus</div>
         <h2 className="text-2xl font-semibold tracking-tight text-brass">{focusGoal.title}</h2>
-        {(focusGoal.whyThisMatters || goalDefinition(focusGoal)) ? <p className="mt-2 max-w-3xl text-sm text-[var(--muted)]">{String(focusGoal.whyThisMatters ?? goalDefinition(focusGoal))}</p> : null}
+        {focusGoal.whyThisMatters || goalDefinition(focusGoal) ? <p className="mt-2 max-w-3xl text-sm text-[var(--muted)]">{String(focusGoal.whyThisMatters ?? goalDefinition(focusGoal))}</p> : null}
       </div>
       <div className="border-t bg-card/70">
         <div className="grid divide-y lg:grid-cols-[1fr_1.2fr_1fr] lg:divide-x lg:divide-y-0">
@@ -365,7 +566,9 @@ function CurrentFocusPanel({ data, action }: { data: Dashboard; action: ActionFn
                 {activeWeekly.completed ? <span className="mr-2 text-moss">✓</span> : null}
                 {activeWeekly.title}
               </div>
-            ) : <div className="text-sm text-[var(--muted)]">No weekly goal connected yet.</div>}
+            ) : (
+              <div className="text-sm text-[var(--muted)]">No weekly goal connected yet.</div>
+            )}
           </div>
           <div className="p-4">
             <div className="label-caps mb-2">Today&apos;s daily goals</div>
@@ -378,7 +581,8 @@ function CurrentFocusPanel({ data, action }: { data: Dashboard; action: ActionFn
                   onClick={() => action('goal.toggle', { id: item.id })}
                   className={`rounded-full border px-3 py-1.5 text-xs font-medium transition active:scale-95 ${item.completed ? 'border-moss bg-moss text-white' : 'bg-card text-ink hover:border-brass hover:text-brass'}`}
                 >
-                  {item.completed ? '✓ ' : ''}{item.title}
+                  {item.completed ? '✓ ' : ''}
+                  {item.title}
                 </button>
               ))}
             </div>

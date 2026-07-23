@@ -7,8 +7,8 @@ import {
 import { Dashboard, Row } from '@/lib/ledger/types';
 import { colors, fourThieves } from '@/lib/ledger/constants';
 import { gridStroke } from '@/lib/ledger/constants';
-import { dateKey, debtSeries, daysBack, daysUntil, navigateTo } from '@/lib/ledger/utils';
-import { Parchment, Stat, TextArea, ProgressBar, Empty, Field } from '@/components/ledger/ui';
+import { dateKey, debtSeries, daysBack, daysUntil } from '@/lib/ledger/utils';
+import { Parchment, Stat, TextArea, ProgressBar, Empty, Field, Modal } from '@/components/ledger/ui';
 import { SvgCanvasTrendChart, ChartTooltip, SparkBox, ChartPlaceholder } from '@/components/ledger/charts';
 
 type ActionFn = (type: string, payload?: Row) => Promise<void>;
@@ -166,7 +166,7 @@ export function PatternsPanel({ patterns = [] }: { patterns?: Row[] }) {
 }
 
 export function CycleSettings({ data, action }: { data: Dashboard; action: ActionFn }) {
-  const lifeGoals = data.goals.filter((goal) => goal.level === 'life');
+  const lifeGoals = data.goals.filter((goal) => goal.level === 'someday' || goal.level === 'life');
   const [focusGoalId, setFocusGoalId] = useState(String(data.focusCycle?.focusGoalId ?? lifeGoals[0]?.id ?? ''));
   const [focusGoalQuery, setFocusGoalQuery] = useState(() => lifeGoals.find((goal) => goal.id === String(data.focusCycle?.focusGoalId ?? lifeGoals[0]?.id ?? ''))?.title ?? '');
   const [cycleLengthDays, setCycleLengthDays] = useState(String(data.focusCycle?.cycleLengthDays ?? 90));
@@ -174,6 +174,7 @@ export function CycleSettings({ data, action }: { data: Dashboard; action: Actio
   const focusedGoal = lifeGoals.find((goal) => goal.id === focusGoalId) ?? null;
   const canSave = Boolean(focusGoalId);
   const focusGoalFromTitle = (title: string) => lifeGoals.find((goal) => goal.title === title)?.id ?? '';
+  const [confirmStartModal, setConfirmStartModal] = useState(false);
 
   return (
     <div className="space-y-6">
@@ -234,15 +235,23 @@ export function CycleSettings({ data, action }: { data: Dashboard; action: Actio
           <button
             className="btn"
             disabled={!canSave}
-            onClick={() => {
-              const ok = window.confirm('Start a new focus cycle with this North Star? This will close the current cycle.');
-              if (ok) action('focusCycle.start', { focusGoalId, cycleLengthDays });
-            }}
+            onClick={() => setConfirmStartModal(true)}
             type="button"
           >
             Start new cycle
           </button>
         </div>
+
+        <Modal
+          isOpen={confirmStartModal}
+          onClose={() => setConfirmStartModal(false)}
+          title="Start New Focus Cycle"
+          actionText="Start Cycle"
+          tone="brass"
+          onConfirm={() => action('focusCycle.start', { focusGoalId, cycleLengthDays })}
+        >
+          Start a new focus cycle with this North Star? This will close the current cycle.
+        </Modal>
       </Parchment>
 
       <Parchment title="Current Focus Goal" eyebrow="Goal-based focus">

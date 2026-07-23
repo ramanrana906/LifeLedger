@@ -31,11 +31,12 @@ export function amortizePayment(
   emiAmount: number,
 ): AmortizedPayment {
   const interestPortion = roundMoney(balance * monthlyRate(annualRatePercent));
+  const amount = roundMoney(Math.min(emiAmount, balance + interestPortion));
   const principalPortion = roundMoney(
-    Math.min(balance, Math.max(emiAmount - interestPortion, 0)),
+    Math.min(balance, Math.max(amount - interestPortion, 0)),
   );
   return {
-    amount: roundMoney(emiAmount),
+    amount,
     interestPortion,
     principalPortion,
     resultingBalance: roundMoney(Math.max(balance - principalPortion, 0)),
@@ -48,7 +49,7 @@ export function applyPrincipalPayment(
 ): AmortizedPayment {
   const principalPortion = roundMoney(Math.min(balance, amount));
   return {
-    amount: roundMoney(amount),
+    amount: principalPortion,
     interestPortion: 0,
     principalPortion,
     resultingBalance: roundMoney(Math.max(balance - principalPortion, 0)),

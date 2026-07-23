@@ -31,16 +31,21 @@ export type Dashboard = {
   assetSnapshots: Row[];
   netWorthSnapshots: Row[];
   loanSummaries: Row[];
+  budgetLimits: Row[];
+  financeSummary: Row;
   dietLogs: Row[];
   journalEntries: Row[];
   xpEvents: Row[];
   patterns: Row[];
   weeklyReflection: Row | null;
-  journalGoalTags: Row[];
-  journalHabitTags: Row[];
   routines: Row[];
   routineStatuses: Row[];
   routineDayLogs: Row[];
+  entityLinks: Row[];
+  linkSuggestions: {
+    journalLearning: Row[];
+    debtTransactions: Row[];
+  };
 };
 
 export const dashboardArrays: (keyof Dashboard)[] = [
@@ -65,15 +70,15 @@ export const dashboardArrays: (keyof Dashboard)[] = [
   'assetSnapshots',
   'netWorthSnapshots',
   'loanSummaries',
+  'budgetLimits',
   'dietLogs',
   'journalEntries',
   'xpEvents',
   'patterns',
-  'journalGoalTags',
-  'journalHabitTags',
   'routines',
   'routineStatuses',
   'routineDayLogs',
+  'entityLinks',
 ];
 
 export function normalizeDashboard(payload: Partial<Dashboard>): Dashboard {
@@ -88,6 +93,11 @@ export function normalizeDashboard(payload: Partial<Dashboard>): Dashboard {
     diet: payload.diet ?? null,
     savings: payload.savings ?? null,
     weeklyReflection: payload.weeklyReflection ?? null,
+    financeSummary: payload.financeSummary ?? {},
+    linkSuggestions: {
+      journalLearning: payload.linkSuggestions?.journalLearning ?? [],
+      debtTransactions: payload.linkSuggestions?.debtTransactions ?? [],
+    },
   } as Dashboard;
 
   dashboardArrays.forEach((key) => {

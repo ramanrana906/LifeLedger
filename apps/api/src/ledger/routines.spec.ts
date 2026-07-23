@@ -7,7 +7,6 @@ describe('routine auto-check evaluation', () => {
       id: 'routine-1',
       name: 'Morning launch',
       timeAnchor: 'morning',
-      linkedGoalId: 'goal-life',
       steps: [
         {
           id: 'step-habit',
@@ -15,7 +14,8 @@ describe('routine auto-check evaluation', () => {
           orderIndex: 0,
           stepName: 'Meditate',
           stepType: 'habit',
-          linkedHabitId: 'habit-1',
+          targetType: 'habit',
+          targetId: 'habit-1',
         },
         {
           id: 'step-daily',
@@ -23,7 +23,8 @@ describe('routine auto-check evaluation', () => {
           orderIndex: 1,
           stepName: 'Daily goal',
           stepType: 'daily_goal',
-          linkedDailyGoalId: 'goal-daily',
+          targetType: 'goal',
+          targetId: 'goal-daily',
         },
         {
           id: 'step-weekly',
@@ -31,7 +32,8 @@ describe('routine auto-check evaluation', () => {
           orderIndex: 2,
           stepName: 'Weekly goal',
           stepType: 'weekly_goal',
-          linkedWeeklyGoalId: 'goal-weekly',
+          targetType: 'goal',
+          targetId: 'goal-weekly',
         },
         {
           id: 'step-learning',
@@ -39,7 +41,8 @@ describe('routine auto-check evaluation', () => {
           orderIndex: 3,
           stepName: 'Study',
           stepType: 'learning',
-          linkedSkillId: 'skill-1',
+          targetType: 'learning_skill',
+          targetId: 'skill-1',
         },
         {
           id: 'step-finance',

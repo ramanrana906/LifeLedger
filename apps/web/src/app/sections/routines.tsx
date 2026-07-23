@@ -1,16 +1,12 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Dashboard, Row } from '@/lib/ledger/types';
 import { colors } from '@/lib/ledger/constants';
-import {
-  goalLevelLabel,
-  routineAnchorLabel,
-  routineStepTypeLabel,
-  routineStepTargetLabel,
-  ask,
-} from '@/lib/ledger/utils';
+import { EntityType, LinkableEntity, entityDomId, focusEntityInView, listenForEntityNavigation, routineAnchorLabel, routineStepTypeLabel, routineStepTargetLabel, ask } from '@/lib/ledger/utils';
 import { Parchment, Stat, Field, Select, ProgressBar, Empty } from '@/components/ledger/ui';
+import { EntityConnections } from '@/components/ledger/entity-connections';
+import { LinkToPicker } from '@/components/ledger/link-to-picker';
 
 type ActionFn = (type: string, payload?: Row) => Promise<void>;
 
@@ -30,50 +26,66 @@ function defaultRoutineStepName(type: string) {
 }
 
 export function Routines({ data, action }: { data: Dashboard; action: ActionFn }) {
-  const [routine, setRoutine] = useState({ name: '', timeAnchor: '', goalQuery: '', protected: false });
+  const [routine, setRoutine] = useState({
+    name: '',
+    timeAnchor: '',
+    protected: false,
+  });
   const [selectedRoutineId, setSelectedRoutineId] = useState(() => String(data.routines[0]?.id ?? ''));
-  const [step, setStep] = useState({ stepType: 'habit', stepName: defaultRoutineStepName('habit'), linkQuery: '' });
-  const goalOptions = data.goals.map((goal) => ({ id: String(goal.id), label: `${goalLevelLabel(String(goal.level))}: ${goal.title}` }));
-  const habitOptions = data.habits.map((habit) => ({ id: String(habit.id), label: habit.name }));
-  const dailyGoalOptions = data.goals.filter((goal) => goal.level === 'daily').map((goal) => ({ id: String(goal.id), label: goal.title }));
-  const weeklyGoalOptions = data.goals.filter((goal) => goal.level === 'weekly').map((goal) => ({ id: String(goal.id), label: goal.title }));
-  const skillOptions = data.skills.map((skill) => ({ id: String(skill.id), label: skill.name }));
+  const [step, setStep] = useState({
+    stepType: 'habit',
+    stepName: defaultRoutineStepName('habit'),
+  });
+  const [stepTarget, setStepTarget] = useState<LinkableEntity | null>(null);
+  const [showStepTargetPicker, setShowStepTargetPicker] = useState(false);
   const selectedRoutine = data.routines.find((item) => String(item.id) === selectedRoutineId) ?? data.routines[0] ?? null;
   const selectedStatus = data.routineStatuses.find((item) => String(item.id) === String(selectedRoutine?.id));
-  const recentLogs = data.routineDayLogs.filter((log) => String(log.routineId) === String(selectedRoutine?.id)).slice(-14).reverse();
-  const goalIdFromLabel = (label: string) => goalOptions.find((goal) => goal.label === label)?.id ?? '';
-  const optionIdFromLabel = (options: { id: string; label: string }[], label: string) => options.find((item) => item.label === label)?.id ?? '';
-  const stepOptions =
-    step.stepType === 'habit' ? habitOptions :
-    step.stepType === 'daily_goal' ? dailyGoalOptions :
-    step.stepType === 'weekly_goal' ? weeklyGoalOptions :
-    step.stepType === 'learning' ? skillOptions :
-    [];
+  const recentLogs = data.routineDayLogs
+    .filter((log) => String(log.routineId) === String(selectedRoutine?.id))
+    .slice(-14)
+    .reverse();
+  const stepAllowedTypes: EntityType[] =
+    step.stepType === 'habit' ? ['habit'] : ['daily_goal', 'weekly_goal'].includes(step.stepType) ? ['goal'] : step.stepType === 'learning' ? ['learning_skill'] : [];
+  const stepTargetRequired = stepAllowedTypes.length > 0;
+  const stepTargetFilter = (candidate: LinkableEntity) => {
+    if (step.stepType === 'daily_goal') return candidate.level === 'daily';
+    if (step.stepType === 'weekly_goal') return candidate.level === 'weekly';
+    return true;
+  };
 
   const addStepPayload = () => {
     const payload: Row = {
       routineId: selectedRoutine?.id,
       stepType: step.stepType,
-      stepName: step.stepName.trim() || step.linkQuery || defaultRoutineStepName(step.stepType),
+      stepName: step.stepName.trim() || stepTarget?.title || defaultRoutineStepName(step.stepType),
     };
-    if (step.stepType === 'habit') payload.linkedHabitId = optionIdFromLabel(habitOptions, step.linkQuery);
-    if (step.stepType === 'daily_goal') payload.linkedDailyGoalId = optionIdFromLabel(dailyGoalOptions, step.linkQuery);
-    if (step.stepType === 'weekly_goal') payload.linkedWeeklyGoalId = optionIdFromLabel(weeklyGoalOptions, step.linkQuery);
-    if (step.stepType === 'learning') payload.linkedSkillId = optionIdFromLabel(skillOptions, step.linkQuery);
-    if (step.stepType === 'finance') payload.linkedFinanceAction = 'expense';
-    if (step.stepType === 'journal') payload.linkedJournal = 'today';
+    if (stepTarget) {
+      payload.targetType = stepTarget.entityType;
+      payload.targetId = stepTarget.entityId;
+    }
     return payload;
   };
 
+  useEffect(
+    () =>
+      listenForEntityNavigation((target) => {
+        if (target.entityType === 'routine') {
+          if (!data.routines.some((item) => String(item.id) === target.entityId)) return;
+          setSelectedRoutineId(target.entityId);
+          focusEntityInView(target);
+          return;
+        }
+        if (target.entityType !== 'routine_step') return;
+        const routineWithStep = data.routines.find((item) => (item.steps ?? []).some((routineStep: Row) => String(routineStep.id) === target.entityId));
+        if (!routineWithStep) return;
+        setSelectedRoutineId(String(routineWithStep.id));
+        focusEntityInView(target);
+      }),
+    [data.routines],
+  );
+
   return (
     <div className="space-y-6">
-      <datalist id="routine-goal-options">
-        {goalOptions.map((goal) => <option key={goal.id} value={goal.label} />)}
-      </datalist>
-      <datalist id="routine-step-link-options">
-        {stepOptions.map((item) => <option key={item.id} value={item.label} />)}
-      </datalist>
-
       <Parchment title="Routines" eyebrow="Ordered checklists">
         <form
           onSubmit={(event) => {
@@ -82,11 +94,10 @@ export function Routines({ data, action }: { data: Dashboard; action: ActionFn }
             action('routine.add', {
               name: routine.name.trim(),
               timeAnchor: routine.timeAnchor || null,
-              linkedGoalId: goalIdFromLabel(routine.goalQuery) || null,
               protected: routine.protected,
-            }).then(() => setRoutine({ name: '', timeAnchor: '', goalQuery: '', protected: false }));
+            }).then(() => setRoutine({ name: '', timeAnchor: '', protected: false }));
           }}
-          className="mb-5 grid gap-2 md:grid-cols-[1fr_170px_260px_140px_auto]"
+          className="mb-5 grid gap-2 md:grid-cols-[1fr_170px_140px_auto]"
         >
           <Field value={routine.name} onChange={(event) => setRoutine({ ...routine, name: event.target.value })} placeholder="Routine name" />
           <Select value={routine.timeAnchor} onChange={(event) => setRoutine({ ...routine, timeAnchor: event.target.value })}>
@@ -96,13 +107,8 @@ export function Routines({ data, action }: { data: Dashboard; action: ActionFn }
             <option value="evening">Evening</option>
             <option value="night">Night</option>
           </Select>
-          <Field list="routine-goal-options" value={routine.goalQuery} onChange={(event) => setRoutine({ ...routine, goalQuery: event.target.value })} placeholder="Link to a goal (optional)" />
           <label className="flex min-h-11 items-center gap-2 rounded-xl border bg-card px-3 text-sm font-medium text-ink">
-            <input
-              type="checkbox"
-              checked={routine.protected}
-              onChange={(event) => setRoutine({ ...routine, protected: event.target.checked })}
-            />
+            <input type="checkbox" checked={routine.protected} onChange={(event) => setRoutine({ ...routine, protected: event.target.checked })} />
             Protected
           </label>
           <button className="btn btn-primary">Add routine</button>
@@ -115,6 +121,7 @@ export function Routines({ data, action }: { data: Dashboard; action: ActionFn }
             return (
               <button
                 key={item.id}
+                id={entityDomId('routine', String(item.id))}
                 type="button"
                 onClick={() => setSelectedRoutineId(String(item.id))}
                 className={`rounded-2xl border bg-card p-4 text-left transition hover:-translate-y-0.5 hover:shadow-sm ${String(selectedRoutine?.id) === String(item.id) ? 'border-brass ring-4 ring-brass/10' : ''}`}
@@ -125,7 +132,9 @@ export function Routines({ data, action }: { data: Dashboard; action: ActionFn }
                       <span className="font-semibold text-ink">{item.name}</span>
                       {item.protected ? <span className="rounded-full border border-brass/25 bg-brass/10 px-2 py-0.5 text-xs font-medium text-brass">Protected</span> : null}
                     </div>
-                    <div className="mt-1 text-xs text-[var(--muted)]">{routineAnchorLabel(item.timeAnchor)} · {(item.steps ?? []).length} steps</div>
+                    <div className="mt-1 text-xs text-[var(--muted)]">
+                      {routineAnchorLabel(item.timeAnchor)} · {(item.steps ?? []).length} steps
+                    </div>
                   </div>
                   <span className="rounded-full border px-2 py-1 text-xs tabular-nums text-brass">{status?.streak ?? 0}d</span>
                 </div>
@@ -140,7 +149,7 @@ export function Routines({ data, action }: { data: Dashboard; action: ActionFn }
         <Parchment
           title={String(selectedRoutine.name)}
           eyebrow={`${routineAnchorLabel(String(selectedRoutine.timeAnchor ?? ''))} routine`}
-          action={(
+          action={
             <div className="flex gap-2">
               <button
                 type="button"
@@ -149,7 +158,12 @@ export function Routines({ data, action }: { data: Dashboard; action: ActionFn }
                   const name = ask('Routine name', selectedRoutine.name);
                   if (!name) return;
                   const timeAnchor = ask('Time anchor: morning, afternoon, evening, night, or blank', selectedRoutine.timeAnchor ?? '');
-                  action('routine.update', { id: selectedRoutine.id, name, timeAnchor: timeAnchor || null, linkedGoalId: selectedRoutine.linkedGoalId ?? null, protected: Boolean(selectedRoutine.protected) });
+                  action('routine.update', {
+                    id: selectedRoutine.id,
+                    name,
+                    timeAnchor: timeAnchor || null,
+                    protected: Boolean(selectedRoutine.protected),
+                  });
                 }}
               >
                 Edit
@@ -157,19 +171,31 @@ export function Routines({ data, action }: { data: Dashboard; action: ActionFn }
               <button
                 type="button"
                 className={`btn ${selectedRoutine.protected ? 'border-brass bg-brass/10 text-brass' : ''}`}
-                onClick={() => action('routine.update', {
-                  id: selectedRoutine.id,
-                  name: selectedRoutine.name,
-                  timeAnchor: selectedRoutine.timeAnchor ?? null,
-                  linkedGoalId: selectedRoutine.linkedGoalId ?? null,
-                  protected: !selectedRoutine.protected,
-                })}
+                onClick={() =>
+                  action('routine.update', {
+                    id: selectedRoutine.id,
+                    name: selectedRoutine.name,
+                    timeAnchor: selectedRoutine.timeAnchor ?? null,
+                    protected: !selectedRoutine.protected,
+                  })
+                }
               >
                 {selectedRoutine.protected ? 'Protected on' : 'Protect'}
               </button>
-              <button className="btn" type="button" onClick={() => action('routine.delete', { id: selectedRoutine.id, label: 'Routine' })}>Delete</button>
+              <button
+                className="btn"
+                type="button"
+                onClick={() =>
+                  action('routine.delete', {
+                    id: selectedRoutine.id,
+                    label: 'Routine',
+                  })
+                }
+              >
+                Delete
+              </button>
             </div>
-          )}
+          }
         >
           <div className="mb-5 grid gap-4 md:grid-cols-3">
             <Stat label="Today" value={`${selectedStatus?.completionPct ?? 0}%`} tone={selectedStatus?.completionPct === 100 ? 'text-moss' : 'text-brass'} />
@@ -181,7 +207,14 @@ export function Routines({ data, action }: { data: Dashboard; action: ActionFn }
             onSubmit={(event) => {
               event.preventDefault();
               if (!selectedRoutine) return;
-              action('routineStep.add', addStepPayload()).then(() => setStep({ stepType: 'habit', stepName: defaultRoutineStepName('habit'), linkQuery: '' }));
+              action('routineStep.add', addStepPayload()).then(() => {
+                setStep({
+                  stepType: 'habit',
+                  stepName: defaultRoutineStepName('habit'),
+                });
+                setStepTarget(null);
+                setShowStepTargetPicker(false);
+              });
             }}
             className="mb-5 grid gap-2 border-t pt-5 md:grid-cols-[170px_1fr_1fr_auto]"
           >
@@ -189,44 +222,140 @@ export function Routines({ data, action }: { data: Dashboard; action: ActionFn }
               value={step.stepType}
               onChange={(event) => {
                 const stepType = event.target.value;
-                setStep({ stepType, stepName: defaultRoutineStepName(stepType), linkQuery: '' });
+                setStep({
+                  stepType,
+                  stepName: defaultRoutineStepName(stepType),
+                });
+                setStepTarget(null);
+                setShowStepTargetPicker(false);
               }}
             >
-              {routineStepTypes.map((type) => <option key={type} value={type}>{routineStepTypeLabel(type)}</option>)}
+              {routineStepTypes.map((type) => (
+                <option key={type} value={type}>
+                  {routineStepTypeLabel(type)}
+                </option>
+              ))}
             </Select>
             <Field value={step.stepName} onChange={(event) => setStep({ ...step, stepName: event.target.value })} placeholder="Step label" />
-            {stepOptions.length ? (
-              <Field list="routine-step-link-options" value={step.linkQuery} onChange={(event) => setStep({ ...step, linkQuery: event.target.value })} placeholder={`Link ${routineStepTypeLabel(step.stepType).toLowerCase()}...`} />
+            {stepAllowedTypes.length ? (
+              <button
+                type="button"
+                onClick={() => setShowStepTargetPicker((current) => !current)}
+                className="rounded-xl border bg-background px-3 py-2 text-left text-sm text-[var(--muted)] transition hover:border-brass hover:text-brass"
+              >
+                {stepTarget ? `Target: ${stepTarget.title}` : `Choose ${routineStepTypeLabel(step.stepType).toLowerCase()} target…`}
+              </button>
             ) : (
               <div className="rounded-xl border bg-background px-3 py-2 text-sm text-[var(--muted)]">
-                {step.stepType === 'finance' ? "Done when today's finance activity exists." : step.stepType === 'journal' ? "Done when today's journal entry has text." : 'Standalone steps are checked inside the routine.'}
+                {step.stepType === 'finance'
+                  ? "Done when today's finance activity exists."
+                  : step.stepType === 'journal'
+                    ? "Done when today's journal entry has text."
+                    : 'Standalone steps are checked inside the routine.'}
               </div>
             )}
-            <button className="btn btn-primary">Add step</button>
+            <button className="btn btn-primary" disabled={stepTargetRequired && !stepTarget} title={stepTargetRequired && !stepTarget ? 'Choose a target first' : undefined}>
+              Add step
+            </button>
+            {showStepTargetPicker && stepAllowedTypes.length ? (
+              <div className="md:col-span-4">
+                <LinkToPicker
+                  data={data}
+                  sourceType="routine_step"
+                  sourceId="draft"
+                  allowedTypes={stepAllowedTypes}
+                  candidateFilter={stepTargetFilter}
+                  heading="Choose step target"
+                  onSelect={(_targetType, _targetId, _relationshipType, candidate) => {
+                    setStepTarget(candidate);
+                    setShowStepTargetPicker(false);
+                  }}
+                  onClose={() => setShowStepTargetPicker(false)}
+                />
+              </div>
+            ) : null}
           </form>
 
           {(selectedRoutine.steps ?? []).length === 0 ? <Empty tone="ink">No steps in this routine yet.</Empty> : null}
           <div className="space-y-2">
-            {[...(selectedRoutine.steps ?? [])].sort((a, b) => Number(a.orderIndex) - Number(b.orderIndex)).map((item: Row, index: number, steps: Row[]) => {
-              const targetLabel = routineStepTargetLabel(data, item);
-              return (
-                <div key={item.id} className="ledger-row flex items-center gap-3 py-3">
-                  <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-xl bg-brass/10 text-xs font-semibold tabular-nums text-brass">{index + 1}</div>
-                  <div className="min-w-0 flex-1">
-                    <div className="font-medium text-ink">{item.stepName}</div>
-                    <div className="mt-1 text-xs text-[var(--muted)]">{routineStepTypeLabel(String(item.stepType))}{targetLabel ? ` · ${targetLabel}` : ''}</div>
+            {[...(selectedRoutine.steps ?? [])]
+              .sort((a, b) => Number(a.orderIndex) - Number(b.orderIndex))
+              .map((item: Row, index: number, steps: Row[]) => {
+                const targetLabel = routineStepTargetLabel(data, item);
+                return (
+                  <div id={entityDomId('routine_step', String(item.id))} key={item.id} className="ledger-row py-3 transition">
+                    <div className="flex items-center gap-3">
+                      <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-xl bg-brass/10 text-xs font-semibold tabular-nums text-brass">{index + 1}</div>
+                      <div className="min-w-0 flex-1">
+                        <div className="font-medium text-ink">{item.stepName}</div>
+                        <div className="mt-1 text-xs text-[var(--muted)]">
+                          {routineStepTypeLabel(String(item.stepType))}
+                          {targetLabel ? ` · ${targetLabel}` : ''}
+                        </div>
+                      </div>
+                      <button
+                        className="rounded px-2 py-1 text-sm text-brass hover:bg-brass hover:text-white disabled:opacity-40"
+                        disabled={index === 0}
+                        onClick={() =>
+                          action('routineStep.move', {
+                            id: item.id,
+                            direction: 'up',
+                          })
+                        }
+                        type="button"
+                      >
+                        Up
+                      </button>
+                      <button
+                        className="rounded px-2 py-1 text-sm text-brass hover:bg-brass hover:text-white disabled:opacity-40"
+                        disabled={index === steps.length - 1}
+                        onClick={() =>
+                          action('routineStep.move', {
+                            id: item.id,
+                            direction: 'down',
+                          })
+                        }
+                        type="button"
+                      >
+                        Down
+                      </button>
+                      <button
+                        className="rounded px-2 py-1 text-sm text-brass hover:bg-brass hover:text-white"
+                        onClick={() => {
+                          const stepName = ask('Step label', item.stepName);
+                          if (stepName)
+                            action('routineStep.update', {
+                              id: item.id,
+                              stepName,
+                              stepType: item.stepType,
+                              targetType: item.targetType ?? null,
+                              targetId: item.targetId ?? null,
+                            });
+                        }}
+                        type="button"
+                      >
+                        Edit
+                      </button>
+                      <button
+                        className="rounded px-2 py-1 text-sm text-wax hover:bg-wax hover:text-white"
+                        onClick={() =>
+                          action('routineStep.delete', {
+                            id: item.id,
+                            label: 'Routine step',
+                          })
+                        }
+                        type="button"
+                      >
+                        Delete
+                      </button>
+                    </div>
+                    <EntityConnections data={data} entityType="routine_step" entityId={String(item.id)} action={action} compact />
                   </div>
-                  <button className="rounded px-2 py-1 text-sm text-brass hover:bg-brass hover:text-white disabled:opacity-40" disabled={index === 0} onClick={() => action('routineStep.move', { id: item.id, direction: 'up' })} type="button">Up</button>
-                  <button className="rounded px-2 py-1 text-sm text-brass hover:bg-brass hover:text-white disabled:opacity-40" disabled={index === steps.length - 1} onClick={() => action('routineStep.move', { id: item.id, direction: 'down' })} type="button">Down</button>
-                  <button className="rounded px-2 py-1 text-sm text-brass hover:bg-brass hover:text-white" onClick={() => {
-                    const stepName = ask('Step label', item.stepName);
-                    if (stepName) action('routineStep.update', { ...item, stepName });
-                  }} type="button">Edit</button>
-                  <button className="rounded px-2 py-1 text-sm text-wax hover:bg-wax hover:text-white" onClick={() => action('routineStep.delete', { id: item.id, label: 'Routine step' })} type="button">Delete</button>
-                </div>
-              );
-            })}
+                );
+              })}
           </div>
+
+          <EntityConnections data={data} entityType="routine" entityId={String(selectedRoutine.id)} action={action} />
 
           <div className="mt-6 border-t pt-5">
             <div className="label-caps mb-3">Recent history</div>

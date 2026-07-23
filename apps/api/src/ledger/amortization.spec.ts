@@ -29,6 +29,19 @@ describe('amortization', () => {
     });
   });
 
+  it('caps the final EMI at the amount actually due', () => {
+    expect(amortizePayment(1000, 12, 5000)).toEqual({
+      amount: 1010,
+      interestPortion: 10,
+      principalPortion: 1000,
+      resultingBalance: 0,
+    });
+  });
+
+  it('does not record an extra payment above the remaining balance', () => {
+    expect(applyPrincipalPayment(1000, 5000).amount).toBe(1000);
+  });
+
   it('projects payoff and flags too-low EMI values', () => {
     expect(projectedPayoffMonths(100000, 12, 8884.88)).toBe(12);
     expect(emiWarning(100000, 12, 12, 7000)).toContain('below');

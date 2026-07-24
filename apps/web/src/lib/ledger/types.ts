@@ -4,6 +4,7 @@ export type Row = Record<string, any>;
 export type Dashboard = {
   stats: Row;
   profile: Row;
+  user: Row;
   focusCycle: Row | null;
   today: string;
   weekStart: string;
@@ -21,11 +22,16 @@ export type Dashboard = {
   diet: Row | null;
   workouts: Row[];
   sleep: Row[];
+  symptomLogs: Row[];
   habits: Row[];
+  habitSlips: Row[];
   checkins: Row[];
   dates: Row[];
   skills: Row[];
   sessions: Row[];
+  flashcards: Row[];
+  learningResources: Row[];
+  people: Row[];
   debtPayments: Row[];
   assets: Row[];
   assetSnapshots: Row[];
@@ -60,11 +66,16 @@ export const dashboardArrays: (keyof Dashboard)[] = [
   'weights',
   'workouts',
   'sleep',
+  'symptomLogs',
   'habits',
+  'habitSlips',
   'checkins',
   'dates',
   'skills',
   'sessions',
+  'flashcards',
+  'learningResources',
+  'people',
   'debtPayments',
   'assets',
   'assetSnapshots',

@@ -232,7 +232,11 @@ export function Finance({ data, action }: { data: Dashboard; action: ActionFn })
       <div className={activeFinanceTab === 'Overview' ? 'space-y-6' : 'hidden'}>
         <div className="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-5">
           <Stat label="Net worth" value={`₹${netWorth.toLocaleString('en-IN')}`} tone={netWorth >= 0 ? 'text-brass' : 'text-wax'} />
-          <Stat label="Savings rate" value={core.savingsRate == null ? 'No income logged' : `${Number(core.savingsRate).toFixed(1)}%`} tone="text-moss" />
+          <Stat 
+            label="Savings rate" 
+            value={core.savingsRate == null ? 'No income logged' : `${Number(core.savingsRate).toFixed(1)}%${data.profile?.targetSavingsRate ? ` (Target: ${data.profile.targetSavingsRate}%)` : ''}`} 
+            tone={core.savingsRate != null && data.profile?.targetSavingsRate != null && Number(core.savingsRate) >= Number(data.profile.targetSavingsRate) ? "text-moss" : core.savingsRate != null && data.profile?.targetSavingsRate != null ? "text-brass" : "text-moss"} 
+          />
           <Stat label="Debt-to-income" value={core.debtToIncomeRatio == null ? 'No income logged' : `${Number(core.debtToIncomeRatio).toFixed(1)}%`} tone="text-brass" />
           <Stat label="Emergency runway" value={core.emergencyFundRunway == null ? 'Not enough history' : `${Number(core.emergencyFundRunway).toFixed(1)} months`} tone="text-moss" />
           <Stat label="Monthly cash flow" value={`₹${Number(core.monthlyCashFlow ?? 0).toLocaleString('en-IN')}`} tone={Number(core.monthlyCashFlow ?? 0) >= 0 ? 'text-moss' : 'text-wax'} />

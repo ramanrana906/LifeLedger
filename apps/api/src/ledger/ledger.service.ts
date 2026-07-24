@@ -533,17 +533,50 @@ export class LedgerService {
       lastCheckin: Date | null;
       currentStreak: number;
       longestStreak: number;
+      frequency: string;
+      frequencyCount: number;
     },
     currentDate: Date,
   ) {
     if (habit.lastCheckin && sameDate(habit.lastCheckin, currentDate)) {
       return habit;
     }
-    const last = habit.lastCheckin ? dateOnly(habit.lastCheckin) : null;
-    const diff = last
-      ? Math.round((currentDate.getTime() - last.getTime()) / 86400000)
-      : 999;
-    const streak = diff === 1 ? habit.currentStreak + 1 : 1;
+    let streak = habit.currentStreak;
+    if (habit.frequency === 'daily' || !habit.frequencyCount) {
+      const last = habit.lastCheckin ? dateOnly(habit.lastCheckin) : null;
+      const diff = last ? Math.round((currentDate.getTime() - last.getTime()) / 86400000) : 999;
+      streak = diff === 1 ? habit.currentStreak + 1 : 1;
+    } else {
+      const getWeekStart = (d: Date) => {
+        const now = new Date(d);
+        const day = now.getUTCDay();
+        const diff = day === 0 ? -6 : 1 - day;
+        now.setUTCDate(now.getUTCDate() + diff);
+        return dateOnly(now);
+      };
+      const currentWS = getWeekStart(currentDate);
+      const lastWS = habit.lastCheckin ? getWeekStart(habit.lastCheckin) : null;
+      if (!lastWS) {
+        streak = 1;
+      } else {
+        const weekDiff = Math.round((currentWS.getTime() - lastWS.getTime()) / (86400000 * 7));
+        if (weekDiff === 0) {
+          streak = habit.currentStreak + 1;
+        } else if (weekDiff === 1) {
+          const lastWeekEnd = new Date(currentWS);
+          const count = await this.prisma.habitCheckin.count({
+            where: {
+              habitId: habit.id,
+              checkinDate: { gte: lastWS, lt: lastWeekEnd }
+            }
+          });
+          streak = count >= habit.frequencyCount ? habit.currentStreak + 1 : 1;
+        } else {
+          streak = 1;
+        }
+      }
+    }
+    
     await this.awardXp(userId, 'habit', 5);
     const [, updated] = await this.prisma.$transaction([
       this.prisma.habitCheckin.upsert({
@@ -906,6 +939,11 @@ export class LedgerService {
       routineStepCompletions,
       routineDayLogsForStreaks,
       entityLinks,
+      symptomLogs,
+      flashcards,
+      learningResources,
+      people,
+      user,
     ] = await Promise.all([
       this.prisma.userStats.findUnique({ where: { userId } }),
       this.prisma.profile.findUnique({ where: { id: userId } }),
@@ -1043,6 +1081,26 @@ export class LedgerService {
         where: { userId },
         orderBy: { createdAt: 'asc' },
       }),
+      this.prisma.symptomLog.findMany({
+        where: active({ userId }),
+        orderBy: { logDate: 'desc' },
+      }),
+      this.prisma.flashcard.findMany({
+        where: active({ userId }),
+        orderBy: { createdAt: 'desc' },
+      }),
+      this.prisma.learningResource.findMany({
+        where: active({ userId }),
+        orderBy: { createdAt: 'desc' },
+      }),
+      this.prisma.person.findMany({
+        where: active({ userId }),
+        orderBy: { name: 'asc' },
+      }),
+      this.prisma.user.findUnique({
+        where: { id: userId },
+        select: { email: true, createdAt: true },
+      }),
     ]);
 
     const activeEndpoints = await this.activeEntityEndpointKeys(userId);
@@ -1139,7 +1197,8 @@ export class LedgerService {
     });
 
     return toJson({
-      stats,
+      user,
+      stats: stats ?? { level: 1, xp: 0, currentStreak: 0, longestStreak: 0 },
       profile,
       focusCycle,
       today: t,
@@ -1161,6 +1220,7 @@ export class LedgerService {
       habits,
       checkins,
       dates,
+      people,
       skills,
       sessions,
       debtPayments,
@@ -1180,6 +1240,9 @@ export class LedgerService {
       routineDayLogs,
       entityLinks: activeEntityLinks,
       linkSuggestions,
+      symptomLogs,
+      flashcards,
+      learningResources,
     });
   }
 
@@ -2975,6 +3038,61 @@ export class LedgerService {
             data: { goalWeight: asNumber(body.goalWeight) },
           }),
         );
+      case 'profile.goalProtein':
+        return toJson(
+          await this.prisma.profile.update({
+            where: { id: userId },
+            data: { goalProtein: asNumber(body.goalProtein) },
+          }),
+        );
+      case 'profile.goalCalories':
+        return toJson(
+          await this.prisma.profile.update({
+            where: { id: userId },
+            data: { goalCalories: asNumber(body.goalCalories) },
+          }),
+        );
+      case 'profile.save': {
+        const updateData: Record<string, any> = {};
+        if (body.displayName !== undefined) updateData.displayName = String(body.displayName || '');
+        if (body.avatarUrl !== undefined) {
+          let avatarUrl = String(body.avatarUrl || '');
+          if (avatarUrl.startsWith('data:image/')) {
+            const matches = avatarUrl.match(/^data:image\/([a-zA-Z0-9]+);base64,(.+)$/);
+            if (matches && matches.length === 3) {
+              const ext = matches[1] === 'jpeg' ? 'jpg' : matches[1];
+              const buffer = Buffer.from(matches[2], 'base64');
+              const fs = require('fs');
+              const path = require('path');
+              const avatarsDir = path.join(process.cwd(), '../web/public/avatars');
+              if (!fs.existsSync(avatarsDir)) fs.mkdirSync(avatarsDir, { recursive: true });
+              const filename = `avatar-${userId}-${Date.now()}.${ext}`;
+              fs.writeFileSync(path.join(avatarsDir, filename), buffer);
+              avatarUrl = `/avatars/${filename}`;
+            }
+          }
+          updateData.avatarUrl = avatarUrl;
+        }
+        if (body.dateOfBirth !== undefined) updateData.dateOfBirth = body.dateOfBirth ? new Date(String(body.dateOfBirth)) : null;
+        if (body.location !== undefined) updateData.location = String(body.location || '');
+        if (body.occupation !== undefined) updateData.occupation = String(body.occupation || '');
+        if (body.height !== undefined) updateData.height = asNumber(body.height);
+        if (body.startingWeight !== undefined) updateData.startingWeight = asNumber(body.startingWeight);
+        if (body.goalWeight !== undefined) updateData.goalWeight = asNumber(body.goalWeight);
+        if (body.goalProtein !== undefined) updateData.goalProtein = asNumber(body.goalProtein);
+        if (body.goalCalories !== undefined) updateData.goalCalories = asNumber(body.goalCalories);
+        if (body.targetSavingsRate !== undefined) updateData.targetSavingsRate = asNumber(body.targetSavingsRate);
+        if (body.aboutMe !== undefined) updateData.aboutMe = String(body.aboutMe || '');
+        if (body.unitsCurrency !== undefined) updateData.unitsCurrency = String(body.unitsCurrency || '');
+
+        console.log('UPDATING PROFILE WITH:', updateData);
+        return toJson(
+          await this.prisma.profile.update({
+            where: { id: userId },
+            data: updateData,
+          }),
+        );
+      }
       case 'diet.save': {
         const existing = await this.prisma.dietLog.findUnique({
           where: { userId_logDate: { userId, logDate: t } },
@@ -3060,6 +3178,45 @@ export class LedgerService {
             data: { deletedAt: null },
           }),
         );
+      case 'symptom.add':
+        await this.awardXp(userId, 'health', 5);
+        return toJson(
+          await this.prisma.symptomLog.create({
+            data: {
+              userId,
+              logDate: body.logDate ? dateOnly(String(body.logDate)) : t,
+              bodyArea: String(body.bodyArea ?? 'Other'),
+              severity: asNumber(body.severity, 1),
+              note: body.note ? String(body.note) : null,
+            },
+          }),
+        );
+      case 'symptom.update':
+        return toJson(
+          await this.prisma.symptomLog.update({
+            where: { id: String(body.id), userId },
+            data: {
+              logDate: body.logDate ? dateOnly(String(body.logDate)) : undefined,
+              bodyArea: String(body.bodyArea ?? 'Other'),
+              severity: asNumber(body.severity, 1),
+              note: body.note ? String(body.note) : null,
+            },
+          }),
+        );
+      case 'symptom.delete':
+        return toJson(
+          await this.prisma.symptomLog.update({
+            where: { id: String(body.id), userId },
+            data: { deletedAt: new Date() },
+          }),
+        );
+      case 'symptom.restore':
+        return toJson(
+          await this.prisma.symptomLog.update({
+            where: { id: String(body.id), userId },
+            data: { deletedAt: null },
+          }),
+        );
       case 'sleep.add':
         await this.awardXp(userId, 'sleep', 5);
         return toJson(
@@ -3099,20 +3256,33 @@ export class LedgerService {
             data: { deletedAt: null },
           }),
         );
-      case 'habit.add':
-        return toJson(
-          await this.prisma.habit.create({
+      case 'habit.add': {
+        const created = await this.prisma.habit.create({
+          data: {
+            userId,
+            name: String(body.name ?? ''),
+            kind: String(body.kind ?? 'build'),
+            frequency: String(body.frequency ?? 'daily'),
+            frequencyCount: body.frequencyCount ? Number(body.frequencyCount) : 7,
+            whyThisMatters: body.whyThisMatters ? String(body.whyThisMatters) : null,
+            lastSlip: body.kind === 'break' ? t : null,
+          },
+        });
+        if (body.linkedEntity && typeof body.linkedEntity === 'object') {
+          const linked = body.linkedEntity as { type: string; id: string };
+          await this.prisma.entityLink.create({
             data: {
               userId,
-              name: String(body.name ?? ''),
-              kind: String(body.kind ?? 'build'),
-              whyThisMatters: body.whyThisMatters
-                ? String(body.whyThisMatters)
-                : null,
-              lastSlip: body.kind === 'break' ? t : null,
-            },
-          }),
-        );
+              sourceType: 'habit',
+              sourceId: created.id,
+              targetType: linked.type as any,
+              targetId: linked.id,
+              relationshipType: 'linked',
+            }
+          });
+        }
+        return toJson(created);
+      }
       case 'habit.update':
         return toJson(
           await this.prisma.habit.update({
@@ -3135,13 +3305,27 @@ export class LedgerService {
         });
         return toJson(await this.checkInHabit(userId, habit, t));
       }
-      case 'habit.slip':
+      case 'habit.slip': {
+        const triggerTags = Array.isArray(body.triggerTags) ? body.triggerTags.map(String) : [];
+        const note = body.note ? String(body.note) : null;
+        
+        await this.prisma.habitSlip.create({
+          data: {
+            userId,
+            habitId: String(body.id),
+            slipDate: t,
+            triggerTags,
+            note,
+          }
+        });
+        
         return toJson(
           await this.prisma.habit.update({
             where: { id: String(body.id), userId },
             data: { currentStreak: 0, lastSlip: t },
           }),
         );
+      }
       case 'habit.delete':
         return toJson(
           await this.prisma.habit.update({
@@ -3156,12 +3340,23 @@ export class LedgerService {
             data: { deletedAt: null },
           }),
         );
+      case 'person.add':
+        return toJson(
+          await this.prisma.person.create({
+            data: {
+              userId,
+              name: String(body.name ?? ''),
+              relationshipType: String(body.relationshipType ?? 'Friend'),
+            },
+          }),
+        );
       case 'relationship.add':
         return toJson(
           await this.prisma.relationshipCheckin.create({
             data: {
               userId,
               weekStart: ws,
+              personId: body.personId ? String(body.personId) : null,
               personName: String(body.personName ?? ''),
               category: String(body.category ?? 'Friend'),
               rating: asNumber(body.rating, 3),
@@ -3174,8 +3369,6 @@ export class LedgerService {
           await this.prisma.relationshipCheckin.update({
             where: { id: String(body.id), userId },
             data: {
-              personName: String(body.personName ?? ''),
-              category: String(body.category ?? 'Friend'),
               rating: asNumber(body.rating, 3),
               note: body.note ? String(body.note) : null,
             },
@@ -3200,6 +3393,7 @@ export class LedgerService {
           await this.prisma.importantDate.create({
             data: {
               userId,
+              personId: body.personId ? String(body.personId) : null,
               personName: String(body.personName ?? ''),
               kind: String(body.kind ?? ''),
               date: dateOnly(String(body.date)),
@@ -3211,7 +3405,6 @@ export class LedgerService {
           await this.prisma.importantDate.update({
             where: { id: String(body.id), userId },
             data: {
-              personName: String(body.personName ?? ''),
               kind: String(body.kind ?? ''),
               date: dateOnly(String(body.date)),
             },
@@ -3231,19 +3424,31 @@ export class LedgerService {
             data: { deletedAt: null },
           }),
         );
-      case 'skill.add':
-        return toJson(
-          await this.prisma.skill.create({
+      case 'skill.add': {
+        const newSkill = await this.prisma.skill.create({
+          data: {
+            userId,
+            name: String(body.name ?? ''),
+            targetDate: body.targetDate
+              ? dateOnly(String(body.targetDate))
+              : null,
+            status: checkedSkillStage(body.status),
+          },
+        });
+        if (body.goalId) {
+          await this.prisma.entityLink.create({
             data: {
               userId,
-              name: String(body.name ?? ''),
-              targetDate: body.targetDate
-                ? dateOnly(String(body.targetDate))
-                : null,
-              status: checkedSkillStage(body.status),
-            },
-          }),
-        );
+              sourceType: 'learning_skill',
+              sourceId: newSkill.id,
+              targetType: 'goal',
+              targetId: String(body.goalId),
+              relationshipType: 'linked',
+            }
+          });
+        }
+        return toJson(newSkill);
+      }
       case 'skill.update':
         return toJson(
           await this.prisma.skill.update({
@@ -3288,6 +3493,7 @@ export class LedgerService {
               userId,
               skillId,
               minutes: asNumber(body.minutes),
+              focusLevel: body.focusLevel ? String(body.focusLevel) : 'Deep Focus',
               notes: body.notes ? String(body.notes) : null,
               logDate: t,
             },
@@ -3307,6 +3513,7 @@ export class LedgerService {
             data: {
               skillId,
               minutes: asNumber(body.minutes),
+              focusLevel: body.focusLevel ? String(body.focusLevel) : undefined,
               notes: body.notes ? String(body.notes) : null,
             },
           }),
@@ -3326,6 +3533,123 @@ export class LedgerService {
             data: { deletedAt: null },
           }),
         );
+      case 'flashcard.add':
+        await this.awardXp(userId, 'learning', 15);
+        return toJson(
+          await this.prisma.flashcard.create({
+            data: {
+              userId,
+              skillId: body.skillId ? String(body.skillId) : null,
+              subject: body.subject ? String(body.subject) : 'General',
+              question: String(body.question ?? ''),
+              answer: String(body.answer ?? ''),
+            }
+          })
+        );
+      case 'flashcard.update':
+        return toJson(
+          await this.prisma.flashcard.update({
+            where: { id: String(body.id), userId },
+            data: {
+              skillId: body.skillId ? String(body.skillId) : null,
+              subject: body.subject ? String(body.subject) : 'General',
+              question: String(body.question ?? ''),
+              answer: String(body.answer ?? ''),
+            }
+          })
+        );
+      case 'flashcard.review':
+        await this.awardXp(userId, 'learning', 10);
+        return toJson(
+          await this.prisma.flashcard.update({
+            where: { id: String(body.id), userId },
+            data: {
+              easeFactor: asNumber(body.easeFactor),
+              interval: asNumber(body.interval),
+              timesReviewed: asNumber(body.timesReviewed),
+              nextReviewDate: dateOnly(String(body.nextReviewDate)),
+            }
+          })
+        );
+      case 'flashcard.delete':
+        return toJson(
+          await this.prisma.flashcard.update({
+            where: { id: String(body.id), userId },
+            data: { deletedAt: new Date() }
+          })
+        );
+      case 'learningResource.add':
+        await this.awardXp(userId, 'learning', 10);
+        return toJson(
+          await this.prisma.learningResource.create({
+            data: {
+              userId,
+              skillId: body.skillId ? String(body.skillId) : null,
+              title: String(body.title ?? ''),
+              type: String(body.type ?? 'Book'),
+              url: body.url ? String(body.url) : null,
+              status: String(body.status ?? 'To Read/Watch'),
+              rating: asNumber(body.rating, 0),
+              notes: body.notes ? String(body.notes) : null,
+            }
+          })
+        );
+      case 'learningResource.update':
+        return toJson(
+          await this.prisma.learningResource.update({
+            where: { id: String(body.id), userId },
+            data: {
+              skillId: body.skillId ? String(body.skillId) : null,
+              title: String(body.title ?? ''),
+              type: String(body.type ?? 'Book'),
+              url: body.url ? String(body.url) : null,
+              status: String(body.status ?? 'To Read/Watch'),
+              rating: asNumber(body.rating, 0),
+              notes: body.notes ? String(body.notes) : null,
+            }
+          })
+        );
+      case 'learningResource.delete':
+        return toJson(
+          await this.prisma.learningResource.update({
+            where: { id: String(body.id), userId },
+            data: { deletedAt: new Date() }
+          })
+        );
+      case 'learning.migrate_local': {
+        const payloadCards = Array.isArray(body.flashcards) ? body.flashcards : [];
+        const payloadResources = Array.isArray(body.resources) ? body.resources : [];
+        
+        const createdCards = await Promise.all(payloadCards.map(c => 
+          this.prisma.flashcard.create({
+            data: {
+              userId,
+              question: String(c.question ?? ''),
+              answer: String(c.answer ?? ''),
+              subject: String(c.subject ?? 'General'),
+              easeFactor: 2.5,
+              interval: asNumber(c.intervalDays, 0),
+              timesReviewed: asNumber(c.timesReviewed, 0),
+              nextReviewDate: c.nextReviewDate ? dateOnly(String(c.nextReviewDate)) : t,
+            }
+          })
+        ));
+        
+        const createdResources = await Promise.all(payloadResources.map(r => 
+          this.prisma.learningResource.create({
+            data: {
+              userId,
+              title: String(r.title ?? ''),
+              type: String(r.type ?? 'Book'),
+              url: r.url ? String(r.url) : null,
+              status: String(r.status ?? 'To Read/Watch'),
+              rating: asNumber(r.rating, 0),
+              notes: r.notes ? String(r.notes) : null,
+            }
+          })
+        ));
+        return { success: true, cardsMigrated: createdCards.length, resourcesMigrated: createdResources.length };
+      }
       case 'entityLink.add': {
         const sourceType = this.checkedEntityType(body.sourceType);
         const sourceId = String(body.sourceId);

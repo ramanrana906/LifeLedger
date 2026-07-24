@@ -58,6 +58,40 @@ export function Today({ data, action, saving }: { data: Dashboard; action: Actio
     .filter((item) => String(item.id) !== String(data.journal?.id ?? ''))
     .reverse()
     .slice(0, 8);
+
+  // Reminders logic
+  const upcomingDates = data.dates
+    ?.filter(d => {
+      const dateObj = new Date(d.date);
+      const today = new Date(data.today);
+      dateObj.setFullYear(today.getFullYear());
+      if (dateObj.getTime() < today.getTime()) {
+        dateObj.setFullYear(today.getFullYear() + 1);
+      }
+      const diffTime = dateObj.getTime() - today.getTime();
+      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+      return diffDays <= 7;
+    })
+    .map(d => {
+      const dateObj = new Date(d.date);
+      const today = new Date(data.today);
+      dateObj.setFullYear(today.getFullYear());
+      if (dateObj.getTime() < today.getTime()) dateObj.setFullYear(today.getFullYear() + 1);
+      const diffDays = Math.ceil((dateObj.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+      const person = data.people?.find(p => p.id === d.personId);
+      return { ...d, diffDays, name: person?.name || d.personName };
+    })
+    .sort((a, b) => a.diffDays - b.diffDays) || [];
+
+  const staleRelationships = (data.people || [])
+    .map(p => {
+      const personCheckins = (data.checkins || []).filter(c => c.personId === p.id).sort((a, b) => new Date(b.weekStart).getTime() - new Date(a.weekStart).getTime());
+      if (personCheckins.length === 0) return null;
+      const lastCheckinDays = Math.ceil((new Date(data.today).getTime() - new Date(personCheckins[0].weekStart).getTime()) / (1000 * 60 * 60 * 24));
+      if (lastCheckinDays > 14) return { ...p, lastCheckinDays };
+      return null;
+    })
+    .filter(Boolean);
   if (pendingJournalTarget && !journalHistory.some((item) => String(item.id) === String(pendingJournalTarget.id)) && String(pendingJournalTarget.id) !== String(data.journal?.id ?? '')) {
     journalHistory.push(pendingJournalTarget);
   }
@@ -169,6 +203,29 @@ export function Today({ data, action, saving }: { data: Dashboard; action: Actio
           This focus cycle ends in <span className="font-semibold tabular-nums text-brass">{Math.max(cycleDaysLeft, 0)} days</span>. Visit Settings to choose the next North Star when you are ready.
         </div>
       ) : null}
+
+      {(upcomingDates.length > 0 || staleRelationships.length > 0) && (
+        <div className="grid gap-4 md:grid-cols-2">
+          {upcomingDates.map((date, idx) => (
+            <div key={`date-${idx}`} className="rounded-2xl border border-indigo-200 bg-indigo-50/50 px-4 py-3 text-sm flex items-center gap-3">
+              <span className="text-xl">📅</span>
+              <div>
+                <div className="font-semibold text-indigo-900">{String((date as any).kind)} in {date.diffDays === 0 ? 'today' : `${date.diffDays} days`}</div>
+                <div className="text-xs text-indigo-700/70">For {date.name}</div>
+              </div>
+            </div>
+          ))}
+          {staleRelationships.map((person, idx) => (
+            <div key={`stale-${idx}`} className="rounded-2xl border border-amber-200 bg-amber-50/50 px-4 py-3 text-sm flex items-center gap-3">
+              <span className="text-xl">👋</span>
+              <div>
+                <div className="font-semibold text-amber-900">Haven't checked in with {String((person as any)!.name)} in a while</div>
+                <div className="text-xs text-amber-700/70">Last check-in was {person!.lastCheckinDays} days ago</div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
 
       <div id={data.journal?.id ? entityDomId('journal_entry', String(data.journal.id)) : undefined} className="transition">
         <Parchment

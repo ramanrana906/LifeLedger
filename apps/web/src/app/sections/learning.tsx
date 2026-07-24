@@ -4,7 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { Dashboard, Row } from '@/lib/ledger/types';
 import { colors, gridStroke, skillStages } from '@/lib/ledger/constants';
-import { dateKey, entityDomId, focusEntityInView, listenForEntityNavigation, studyStreak, moduleCountsByDay, submit, ask } from '@/lib/ledger/utils';
+import { dateKey, entityDomId, focusEntityInView, listenForEntityNavigation, studyStreak, moduleCountsByDay, submit, ask, activeGoals, getLinkedEntities, goalTitle } from '@/lib/ledger/utils';
 import { Parchment, SubTabs, Stat, Field, TextArea, Select, ListItem, Empty, SkillStageProgress } from '@/components/ledger/ui';
 import { ChartTooltip, ChartBox, Heatmap, ChartPlaceholder, AxisLabel } from '@/components/ledger/charts';
 import { EntityConnections } from '@/components/ledger/entity-connections';
@@ -41,6 +41,11 @@ export function Learning({ data, action }: { data: Dashboard; action: ActionFn }
     return learningTabs.includes(saved as (typeof learningTabs)[number]) ? (saved as (typeof learningTabs)[number]) : 'Overview';
   });
 
+  const [selectedSkillId, setSelectedSkillId] = useState<string | null>(null);
+  const [reviewModeActive, setReviewModeActive] = useState(false);
+  const [reviewCardIndex, setReviewCardIndex] = useState(0);
+  const [reviewCardRevealed, setReviewCardRevealed] = useState(false);
+
   const [skill, setSkill] = useState({ name: '', status: 'DONT_KNOW_HOW' });
   const [session, setSession] = useState({
     skillId: '',
@@ -49,39 +54,31 @@ export function Learning({ data, action }: { data: Dashboard; action: ActionFn }
     notes: '',
   });
 
-  const [flashcards, setFlashcards] = useState<FlashcardItem[]>(() => {
-    if (typeof window === 'undefined') return [];
-    const saved = localStorage.getItem('life-ledger-flashcards');
-    if (saved) {
-      try {
-        return JSON.parse(saved);
-      } catch {}
-    }
-    return [];
-  });
-
   useEffect(() => {
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('life-ledger-flashcards', JSON.stringify(flashcards));
+    if (typeof window === 'undefined') return;
+    const localCards = localStorage.getItem('life-ledger-flashcards');
+    const localRes = localStorage.getItem('life-ledger-resources-v2');
+    
+    if (localCards || localRes) {
+      let flashcards = [];
+      let resources = [];
+      try { flashcards = JSON.parse(localCards || '[]'); } catch {}
+      try { resources = JSON.parse(localRes || '[]'); } catch {}
+      
+      if (flashcards.length > 0 || resources.length > 0) {
+        action('learning.migrate_local', { flashcards, resources }).then(() => {
+          localStorage.removeItem('life-ledger-flashcards');
+          localStorage.removeItem('life-ledger-resources-v2');
+        });
+      } else {
+        localStorage.removeItem('life-ledger-flashcards');
+        localStorage.removeItem('life-ledger-resources-v2');
+      }
     }
-  }, [flashcards]);
+  }, [action]);
 
-  const [resources, setResources] = useState<LearningResourceItem[]>(() => {
-    if (typeof window === 'undefined') return [];
-    const saved = localStorage.getItem('life-ledger-resources-v2');
-    if (saved) {
-      try {
-        return JSON.parse(saved);
-      } catch {}
-    }
-    return [];
-  });
-
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('life-ledger-resources-v2', JSON.stringify(resources));
-    }
-  }, [resources]);
+  const flashcards = data.flashcards || [];
+  const resources = data.learningResources || [];
 
   const [newCard, setNewCard] = useState({
     question: '',
@@ -95,6 +92,7 @@ export function Learning({ data, action }: { data: Dashboard; action: ActionFn }
     status: 'In Progress' as LearningResourceItem['status'],
     rating: 5,
     notes: '',
+    skillId: '',
   });
   const [cardSearch, setCardSearch] = useState('');
   const [cardSubjectFilter, setCardSubjectFilter] = useState('All');
@@ -129,21 +127,35 @@ export function Learning({ data, action }: { data: Dashboard; action: ActionFn }
     return matchSubject && matchQuery;
   });
 
-  const reviewCard = (cardId: string, addDays: number) => {
-    const nextDate = dateKey(new Date(new Date(data.today).getTime() + addDays * 86400000).toISOString());
-    setFlashcards((prev) =>
-      prev.map((c) =>
-        c.id === cardId
-          ? {
-              ...c,
-              intervalDays: addDays,
-              nextReviewDate: nextDate,
-              lastReviewedDate: dateKey(data.today),
-              timesReviewed: (c.timesReviewed || 0) + 1,
-            }
-          : c,
-      ),
-    );
+  const reviewCard = (cardId: string, quality: number) => {
+    const card = flashcards.find((c) => c.id === cardId);
+    if (!card) return;
+
+    let interval = 0;
+    const oldEase = Number(card.easeFactor) || 2.5;
+    const timesReviewed = Number(card.timesReviewed) || 0;
+    let oldInterval = Number(card.interval) || 0;
+
+    if (quality < 3) {
+      interval = 1;
+    } else {
+      if (timesReviewed === 0) interval = 1;
+      else if (timesReviewed === 1) interval = 6;
+      else interval = Math.round(oldInterval * oldEase);
+    }
+
+    let newEase = oldEase + (0.1 - (5 - quality) * (0.08 + (5 - quality) * 0.02));
+    if (newEase < 1.3) newEase = 1.3;
+
+    const nextDate = dateKey(new Date(new Date(data.today).getTime() + interval * 86400000).toISOString());
+    
+    action('flashcard.review', {
+      id: cardId,
+      easeFactor: newEase,
+      interval: interval,
+      timesReviewed: timesReviewed + 1,
+      nextReviewDate: nextDate,
+    });
     action('xp.award', {
       amount: 10,
       source: 'learning',
@@ -245,35 +257,35 @@ export function Learning({ data, action }: { data: Dashboard; action: ActionFn }
                         <div className="flex items-center gap-1.5">
                           <button
                             type="button"
-                            onClick={() => reviewCard(card.id, 1)}
+                            onClick={() => reviewCard(card.id, 0)}
                             className="rounded-lg bg-rose-50 px-2 py-1 text-[11px] font-semibold text-rose-700 hover:bg-rose-600 hover:text-white transition"
-                            title="Review again tomorrow"
+                            title="Forget / Again"
                           >
-                            Again (+1d)
+                            Again
                           </button>
                           <button
                             type="button"
                             onClick={() => reviewCard(card.id, 3)}
                             className="rounded-lg bg-amber-50 px-2 py-1 text-[11px] font-semibold text-amber-700 hover:bg-amber-600 hover:text-white transition"
-                            title="Review in 3 days"
+                            title="Hard"
                           >
-                            Hard (+3d)
+                            Hard
                           </button>
                           <button
                             type="button"
-                            onClick={() => reviewCard(card.id, 7)}
+                            onClick={() => reviewCard(card.id, 4)}
                             className="rounded-lg bg-emerald-50 px-2 py-1 text-[11px] font-semibold text-emerald-700 hover:bg-emerald-600 hover:text-white transition"
-                            title="Review in 1 week"
+                            title="Good"
                           >
-                            Good (+7d)
+                            Good
                           </button>
                           <button
                             type="button"
-                            onClick={() => reviewCard(card.id, 14)}
+                            onClick={() => reviewCard(card.id, 5)}
                             className="rounded-lg bg-indigo-50 px-2 py-1 text-[11px] font-semibold text-indigo-700 hover:bg-indigo-600 hover:text-white transition"
-                            title="Review in 2 weeks"
+                            title="Easy"
                           >
-                            Easy (+14d)
+                            Easy
                           </button>
                         </div>
                       </div>
@@ -340,7 +352,96 @@ export function Learning({ data, action }: { data: Dashboard; action: ActionFn }
 
       {/* SUBJECTS & SKILLS */}
       <div className={activeLearningTab === 'Subjects & Skills' ? 'space-y-6' : 'hidden'}>
-        <Parchment title="Subjects & Skill Trees" eyebrow="Track Progression Across Any Discipline">
+        {selectedSkillId ? (() => {
+          const item = data.skills.find(s => s.id === selectedSkillId);
+          if (!item) {
+            setSelectedSkillId(null);
+            return null;
+          }
+          const hours = Number((data.sessions.filter((row) => row.skillId === item.id).reduce((sum, row) => sum + Number(row.minutes), 0) / 60).toFixed(1));
+          const linkedGoal = getLinkedEntities(data, 'learning_skill', String(item.id)).find(link => link.entityType === 'goal');
+          const skillSessions = data.sessions.filter(s => s.skillId === item.id).sort((a, b) => String(b.logDate).localeCompare(String(a.logDate)));
+          const skillFlashcards = flashcards.filter(c => c.skillId === item.id || (c.subject && item.name && c.subject.toLowerCase() === item.name.toLowerCase()));
+          const skillResources = resources.filter(r => r.skillId === item.id);
+
+          return (
+            <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-300">
+              <button type="button" onClick={() => setSelectedSkillId(null)} className="text-xs font-semibold text-[var(--muted)] hover:text-ink transition flex items-center gap-1">
+                ← Back to Subjects & Skills
+              </button>
+              
+              <div className="rounded-2xl border bg-card p-5 shadow-sm">
+                <div className="flex items-start justify-between gap-2">
+                  <div>
+                    <h2 className="text-2xl font-bold text-ink">{item.name}</h2>
+                    <div className="mt-2 text-sm text-[var(--muted)] font-mono">{hours} total hours logged</div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <EntityConnections data={data} entityType="learning_skill" entityId={String(item.id)} action={action} compact />
+                  </div>
+                </div>
+
+                <div className="mt-6 border-t pt-5">
+                  <h3 className="text-sm font-semibold text-ink mb-3">Current Mastery Level</h3>
+                  <SkillStageProgress 
+                    stage={String(item.status ?? 'DONT_KNOW_HOW')} 
+                    onChange={(newStatus) => 
+                      action('skill.update', {
+                        id: item.id,
+                        name: item.name,
+                        status: newStatus,
+                      })
+                    }
+                  />
+                </div>
+              </div>
+
+              <div className="grid gap-6 lg:grid-cols-[1.5fr_1fr]">
+                <div className="space-y-6">
+                  <Parchment title="Study History">
+                    {skillSessions.length === 0 ? <Empty tone="moss">No sessions logged for this skill yet.</Empty> : null}
+                    <div className="space-y-3">
+                      {skillSessions.map((sessionItem) => (
+                        <ListItem
+                          key={sessionItem.id}
+                          title={`${sessionItem.minutes} minutes`}
+                          note={`${sessionItem.logDate}${sessionItem.notes ? ` · ${sessionItem.notes}` : ''}`}
+                        />
+                      ))}
+                    </div>
+                  </Parchment>
+
+                  <Parchment title="Linked Resources">
+                    {skillResources.length === 0 ? <Empty tone="ink">No resources linked to this skill.</Empty> : null}
+                    <div className="space-y-3">
+                      {skillResources.map((res) => (
+                        <div key={res.id} className="rounded-xl border bg-card p-3 shadow-2xs">
+                          <div className="font-semibold text-sm text-ink">{res.title}</div>
+                          <div className="text-xs text-[var(--muted)] mt-1">{res.type} · {res.status}</div>
+                        </div>
+                      ))}
+                    </div>
+                  </Parchment>
+                </div>
+
+                <div>
+                  <Parchment title="Related Flashcards" eyebrow={`${skillFlashcards.length} cards`}>
+                    {skillFlashcards.length === 0 ? <Empty tone="ink">No flashcards found for this subject.</Empty> : null}
+                    <div className="space-y-3 max-h-[500px] overflow-y-auto pr-1">
+                      {skillFlashcards.map(c => (
+                        <div key={c.id} className="rounded-xl border bg-card p-3 shadow-2xs">
+                          <div className="text-xs font-bold text-ink">{c.question}</div>
+                          <div className="mt-1.5 text-[10px] text-[var(--muted)] font-mono">Next review: {c.nextReviewDate}</div>
+                        </div>
+                      ))}
+                    </div>
+                  </Parchment>
+                </div>
+              </div>
+            </div>
+          );
+        })() : (
+          <Parchment title="Subjects & Skill Trees" eyebrow="Track Progression Across Any Discipline">
           <form
             onSubmit={(event) => {
               event.preventDefault();
@@ -352,17 +453,21 @@ export function Learning({ data, action }: { data: Dashboard; action: ActionFn }
                 setSkill({ name: '', status: 'DONT_KNOW_HOW' });
               });
             }}
-            className="mb-6 grid gap-2 md:grid-cols-[1fr_220px_auto]"
+            className="mb-6 rounded-2xl border bg-background/60 p-4 space-y-3"
           >
-            <Field value={skill.name} onChange={(event) => setSkill({ ...skill, name: event.target.value })} placeholder="Subject or skill title..." />
-            <Select value={skill.status} onChange={(event) => setSkill({ ...skill, status: event.target.value })}>
-              {skillStages.map((stage) => (
-                <option key={stage.value} value={stage.value}>
-                  {stage.label}
-                </option>
-              ))}
-            </Select>
-            <button className="btn btn-primary">+ Add Subject / Skill</button>
+            <div className="grid gap-2 md:grid-cols-[1fr_220px]">
+              <Field value={skill.name} onChange={(event) => setSkill({ ...skill, name: event.target.value })} placeholder="Subject or skill title..." />
+              <Select value={skill.status} onChange={(event) => setSkill({ ...skill, status: event.target.value })}>
+                {skillStages.map((stage) => (
+                  <option key={stage.value} value={stage.value}>
+                    {stage.label}
+                  </option>
+                ))}
+              </Select>
+            </div>
+            <div className="grid gap-2">
+              <button className="btn btn-primary">+ Add Subject / Skill</button>
+            </div>
           </form>
 
           {data.skills.length === 0 ? <Empty tone="ink">No subjects or skills added yet. Add a subject above to begin tracking your learning roadmap!</Empty> : null}
@@ -370,39 +475,41 @@ export function Learning({ data, action }: { data: Dashboard; action: ActionFn }
           <div className="grid gap-4 md:grid-cols-2">
             {data.skills.map((item) => {
               const hours = Number((data.sessions.filter((row) => row.skillId === item.id).reduce((sum, row) => sum + Number(row.minutes), 0) / 60).toFixed(1));
+              const linkedGoal = getLinkedEntities(data, 'learning_skill', String(item.id)).find((link) => link.entityType === 'goal');
+              
               return (
-                <div id={entityDomId('learning_skill', String(item.id))} key={item.id} className="rounded-2xl border bg-card p-4 shadow-2xs hover:shadow-md transition">
+                <button 
+                  id={entityDomId('learning_skill', String(item.id))} 
+                  key={item.id} 
+                  type="button"
+                  onClick={(e) => {
+                    // Prevent navigation if clicking on progress bar or edit/delete buttons
+                    if ((e.target as HTMLElement).closest('.mt-3, .mt-4')) return;
+                    setSelectedSkillId(String(item.id));
+                  }}
+                  className="rounded-2xl border bg-card p-4 shadow-2xs hover:shadow-md hover:border-brass/30 transition text-left group"
+                >
                   <div className="flex items-start justify-between gap-2">
                     <div>
-                      <h4 className="text-base font-bold text-ink">{item.name}</h4>
+                      <h4 className="text-base font-bold text-ink group-hover:text-brass transition">{item.name}</h4>
                     </div>
                     <span className="rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-semibold text-slate-600 font-mono">{hours} hrs logged</span>
                   </div>
 
                   <div className="mt-3">
-                    <SkillStageProgress stage={String(item.status ?? 'DONT_KNOW_HOW')} />
-                  </div>
-
-                  <div className="mt-4 flex flex-wrap items-center justify-between gap-2 border-t pt-3">
-                    <Select
-                      value={String(item.status ?? 'DONT_KNOW_HOW')}
-                      onChange={(event) =>
+                    <SkillStageProgress 
+                      stage={String(item.status ?? 'DONT_KNOW_HOW')} 
+                      onChange={(newStatus) => 
                         action('skill.update', {
                           id: item.id,
                           name: item.name,
-                          status: event.target.value,
+                          status: newStatus,
                         })
                       }
-                      className="text-xs py-1"
-                      aria-label="Skill stage"
-                    >
-                      {skillStages.map((stage) => (
-                        <option key={stage.value} value={stage.value}>
-                          {stage.label}
-                        </option>
-                      ))}
-                    </Select>
+                    />
+                  </div>
 
+                  <div className="mt-4 flex flex-wrap items-center justify-between gap-2 border-t pt-3">
                     <div className="flex items-center gap-2">
                       <EntityConnections data={data} entityType="learning_skill" entityId={String(item.id)} action={action} compact />
                       <button
@@ -432,11 +539,12 @@ export function Learning({ data, action }: { data: Dashboard; action: ActionFn }
                       </button>
                     </div>
                   </div>
-                </div>
+                </button>
               );
             })}
           </div>
         </Parchment>
+        )}
       </div>
 
       {/* FLASHCARDS */}
@@ -446,21 +554,16 @@ export function Learning({ data, action }: { data: Dashboard; action: ActionFn }
             onSubmit={(e) => {
               e.preventDefault();
               if (!newCard.question.trim() || !newCard.answer.trim()) return;
-              const card: FlashcardItem = {
-                id: String(Date.now()),
+              action('flashcard.add', {
                 question: newCard.question.trim(),
                 answer: newCard.answer.trim(),
                 subject: newCard.subject.trim() || 'General',
-                intervalDays: 1,
-                nextReviewDate: dateKey(data.today),
-                timesReviewed: 0,
-              };
-              setFlashcards([card, ...flashcards]);
+              });
               setNewCard({ question: '', answer: '', subject: '' });
               action('xp.award', {
                 amount: 15,
                 source: 'learning',
-                note: `Added Flashcard ${card.question}`,
+                note: `Added Flashcard ${newCard.question}`,
               });
             }}
             className="mb-6 rounded-2xl border bg-background/60 p-4 space-y-3"
@@ -480,23 +583,88 @@ export function Learning({ data, action }: { data: Dashboard; action: ActionFn }
             </div>
           </form>
 
-          <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-            <div className="flex items-center gap-2">
-              <Field placeholder="Search flashcards or subjects..." value={cardSearch} onChange={(e) => setCardSearch(e.target.value)} className="w-64 text-xs" />
-              <Select value={cardSubjectFilter} onChange={(e) => setCardSubjectFilter(e.target.value)} className="text-xs py-1">
-                <option value="All">All Subjects</option>
-                {uniqueSubjects.map((sub) => (
-                  <option key={sub} value={sub}>
-                    {sub}
-                  </option>
-                ))}
-              </Select>
+          {reviewModeActive && dueFlashcards.length > 0 ? (
+            <div className="mb-6 rounded-2xl border border-indigo-200 bg-card p-6 shadow-xl animate-in fade-in slide-in-from-bottom-2 duration-300">
+              <div className="flex items-center justify-between border-b pb-3 mb-4">
+                <div className="text-sm font-bold text-indigo-900 flex items-center gap-2">
+                  <span>🧠</span> Review Session
+                </div>
+                <div className="text-xs font-semibold text-slate-500">
+                  Card {reviewCardIndex + 1} of {dueFlashcards.length}
+                </div>
+              </div>
+
+              {dueFlashcards[reviewCardIndex] ? (() => {
+                const c = dueFlashcards[reviewCardIndex];
+                return (
+                  <div className="min-h-[200px] flex flex-col justify-center text-center">
+                    <span className="inline-block rounded-full bg-slate-100 px-2.5 py-0.5 text-[10px] font-bold text-slate-600 self-center mb-4">{c.subject || 'General'}</span>
+                    <h3 className="text-xl font-bold text-ink mb-6">{c.question}</h3>
+                    
+                    {reviewCardRevealed ? (
+                      <div className="animate-in fade-in duration-200">
+                        <div className="w-16 h-px bg-slate-200 mx-auto mb-6"></div>
+                        <div className="text-sm text-slate-800 leading-relaxed max-w-2xl mx-auto mb-8">
+                          {c.answer}
+                        </div>
+                        <div className="flex items-center justify-center gap-3">
+                          <button type="button" onClick={() => { reviewCard(c.id, 0); setReviewCardRevealed(false); }} className="rounded-xl bg-rose-50 px-4 py-2 text-sm font-bold text-rose-700 hover:bg-rose-600 hover:text-white transition">Again (1d)</button>
+                          <button type="button" onClick={() => { reviewCard(c.id, 3); setReviewCardRevealed(false); }} className="rounded-xl bg-amber-50 px-4 py-2 text-sm font-bold text-amber-700 hover:bg-amber-600 hover:text-white transition">Hard</button>
+                          <button type="button" onClick={() => { reviewCard(c.id, 4); setReviewCardRevealed(false); }} className="rounded-xl bg-emerald-50 px-4 py-2 text-sm font-bold text-emerald-700 hover:bg-emerald-600 hover:text-white transition">Good</button>
+                          <button type="button" onClick={() => { reviewCard(c.id, 5); setReviewCardRevealed(false); }} className="rounded-xl bg-indigo-50 px-4 py-2 text-sm font-bold text-indigo-700 hover:bg-indigo-600 hover:text-white transition">Easy</button>
+                        </div>
+                      </div>
+                    ) : (
+                      <button type="button" onClick={() => setReviewCardRevealed(true)} className="mx-auto rounded-xl bg-indigo-600 px-6 py-2 text-sm font-bold text-white hover:bg-indigo-700 transition shadow-sm">
+                        Show Answer
+                      </button>
+                    )}
+                  </div>
+                );
+              })() : (
+                <div className="text-center py-8">
+                  <div className="text-2xl mb-2">🎉</div>
+                  <h3 className="text-lg font-bold text-ink">Session Complete!</h3>
+                  <p className="text-sm text-slate-500 mt-1">You've reviewed all due cards.</p>
+                  <button type="button" onClick={() => setReviewModeActive(false)} className="mt-6 rounded-xl bg-slate-100 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-200 transition">
+                    Close Session
+                  </button>
+                </div>
+              )}
             </div>
-            <span className="text-xs text-slate-500 font-mono">{filteredCards.length} Cards Total</span>
-          </div>
+          ) : null}
 
-          {filteredCards.length === 0 ? <Empty tone="ink">No flashcards found. Create a flashcard above to start building your memory vault!</Empty> : null}
+          {!reviewModeActive && (
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+              <div className="flex items-center gap-3">
+                {dueFlashcards.length > 0 && (
+                  <button 
+                    type="button" 
+                    onClick={() => { setReviewCardIndex(0); setReviewCardRevealed(false); setReviewModeActive(true); }}
+                    className="rounded-lg bg-indigo-600 px-4 py-1.5 text-xs font-bold text-white hover:bg-indigo-700 shadow-sm transition flex items-center gap-1.5"
+                  >
+                    <span>🧠</span> Review Due Cards ({dueFlashcards.length})
+                  </button>
+                )}
+                <div className="flex items-center gap-2 border-l pl-3 ml-1">
+                  <Field placeholder="Search flashcards..." value={cardSearch} onChange={(e) => setCardSearch(e.target.value)} className="w-56 text-xs" />
+                  <Select value={cardSubjectFilter} onChange={(e) => setCardSubjectFilter(e.target.value)} className="text-xs py-1">
+                    <option value="All">All Subjects</option>
+                    {uniqueSubjects.map((sub) => (
+                      <option key={sub} value={sub}>
+                        {sub}
+                      </option>
+                    ))}
+                  </Select>
+                </div>
+              </div>
+              <span className="text-xs text-slate-500 font-mono">{filteredCards.length} Cards Total</span>
+            </div>
+          )}
 
+          {!reviewModeActive && filteredCards.length === 0 ? <Empty tone="ink">No flashcards found. Create a flashcard above to start building your memory vault!</Empty> : null}
+
+          {!reviewModeActive && (
           <div className="grid gap-4 md:grid-cols-2">
             {filteredCards.map((c) => {
               const isRevealed = revealedCards[c.id];
@@ -507,7 +675,7 @@ export function Learning({ data, action }: { data: Dashboard; action: ActionFn }
                       <span className="rounded-full bg-slate-100 px-2.5 py-0.5 text-[10px] font-semibold text-slate-700">{c.subject || 'General'}</span>
                       <div className="flex items-center gap-2 text-[10px] text-slate-400 font-mono">
                         <span>Reviewed {c.timesReviewed || 0}x</span>
-                        <button type="button" onClick={() => setFlashcards((prev) => prev.filter((item) => item.id !== c.id))} className="hover:text-red-600 transition" title="Delete card">
+                        <button type="button" onClick={() => action('flashcard.delete', { id: c.id, label: 'Flashcard' })} className="hover:text-red-600 transition" title="Delete card">
                           ✕
                         </button>
                       </div>
@@ -542,6 +710,7 @@ export function Learning({ data, action }: { data: Dashboard; action: ActionFn }
               );
             })}
           </div>
+          )}
         </Parchment>
       </div>
 
@@ -579,8 +748,11 @@ export function Learning({ data, action }: { data: Dashboard; action: ActionFn }
               <Field placeholder="Duration (Minutes)" type="number" value={session.minutes} onChange={(e) => setSession({ ...session, minutes: e.target.value })} />
               <Select value={session.focusLevel} onChange={(e) => setSession({ ...session, focusLevel: e.target.value })}>
                 <option value="Deep Focus">⚡ Deep Focus</option>
-                <option value="Moderate">🧠 Moderate Focus</option>
-                <option value="Light Practice">☕ Light Practice</option>
+                <option value="Light Review">📖 Light Review</option>
+                <option value="Practice Problems">📝 Practice Problems</option>
+                <option value="Reading">📚 Reading</option>
+                <option value="Casual">☕ Casual</option>
+                <option value="Group Study">👥 Group Study</option>
               </Select>
               <button className="btn btn-primary">Log Session</button>
             </div>
@@ -625,16 +797,15 @@ export function Learning({ data, action }: { data: Dashboard; action: ActionFn }
             onSubmit={(e) => {
               e.preventDefault();
               if (!newRes.title.trim()) return;
-              const newItem: LearningResourceItem = {
-                id: String(Date.now()),
+              action('learningResource.add', {
                 title: newRes.title.trim(),
                 type: newRes.type,
                 url: newRes.url.trim() || undefined,
                 status: newRes.status,
                 rating: Number(newRes.rating),
                 notes: newRes.notes.trim() || undefined,
-              };
-              setResources([newItem, ...resources]);
+                skillId: newRes.skillId || undefined,
+              });
               setNewRes({
                 title: '',
                 type: 'Book',
@@ -642,11 +813,12 @@ export function Learning({ data, action }: { data: Dashboard; action: ActionFn }
                 status: 'In Progress',
                 rating: 5,
                 notes: '',
+                skillId: '',
               });
               action('xp.award', {
                 amount: 10,
                 source: 'learning',
-                note: `Added Resource ${newItem.title}`,
+                note: `Added Resource ${newRes.title}`,
               });
             }}
             className="mb-6 rounded-2xl border bg-background/60 p-4 space-y-3"
@@ -687,8 +859,18 @@ export function Learning({ data, action }: { data: Dashboard; action: ActionFn }
                 <option value="3">⭐⭐⭐ (3)</option>
               </Select>
             </div>
-            <div className="grid gap-2 md:grid-cols-[1fr_1fr_auto]">
-              <Field placeholder="URL / Link (optional)..." value={newRes.url} onChange={(e) => setNewRes({ ...newRes, url: e.target.value })} />
+            <div className="grid gap-2 md:grid-cols-[1fr_1fr]">
+              <Field placeholder="URL or link (optional)" type="url" value={newRes.url} onChange={(e) => setNewRes({ ...newRes, url: e.target.value })} />
+              <Select value={newRes.skillId} onChange={(e) => setNewRes({ ...newRes, skillId: e.target.value })}>
+                <option value="">Link to Skill/Subject (Optional)</option>
+                {data.skills.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.name}
+                  </option>
+                ))}
+              </Select>
+            </div>
+            <div className="grid gap-2 md:grid-cols-[1fr_auto]">
               <Field placeholder="Key takeaways or summary notes..." value={newRes.notes} onChange={(e) => setNewRes({ ...newRes, notes: e.target.value })} />
               <button className="btn btn-primary">+ Add Resource</button>
             </div>
@@ -709,16 +891,10 @@ export function Learning({ data, action }: { data: Dashboard; action: ActionFn }
                   <Select
                     value={res.status}
                     onChange={(e) =>
-                      setResources((prev) =>
-                        prev.map((item) =>
-                          item.id === res.id
-                            ? {
-                                ...item,
-                                status: e.target.value as LearningResourceItem['status'],
-                              }
-                            : item,
-                        ),
-                      )
+                      action('learningResource.update', {
+                        ...res,
+                        status: e.target.value,
+                      })
                     }
                     className="text-xs py-0.5"
                   >
@@ -738,7 +914,7 @@ export function Learning({ data, action }: { data: Dashboard; action: ActionFn }
                         Open Link ↗
                       </a>
                     ) : null}
-                    <button type="button" onClick={() => setResources((prev) => prev.filter((item) => item.id !== res.id))} className="text-slate-400 hover:text-red-600">
+                    <button type="button" onClick={() => action('learningResource.delete', { id: res.id, label: 'Resource' })} className="text-slate-400 hover:text-red-600">
                       Delete
                     </button>
                   </div>

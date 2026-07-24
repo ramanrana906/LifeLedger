@@ -1,0 +1,54 @@
+
+> @journal/api@0.0.1 start
+> nest start
+
+[32m[Nest] 16158  - [39m07/24/2026, 3:31:20 PM [32m    LOG[39m [38;5;3m[NestFactory] [39m[32mStarting Nest application...[39m
+[32m[Nest] 16158  - [39m07/24/2026, 3:31:20 PM [32m    LOG[39m [38;5;3m[InstanceLoader] [39m[32mAppModule dependencies initialized[39m[38;5;3m +19ms[39m
+[32m[Nest] 16158  - [39m07/24/2026, 3:31:20 PM [32m    LOG[39m [38;5;3m[RoutesResolver] [39m[32mAppController {/}:[39m[38;5;3m +6ms[39m
+[32m[Nest] 16158  - [39m07/24/2026, 3:31:20 PM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/, GET} route[39m[38;5;3m +1ms[39m
+[32m[Nest] 16158  - [39m07/24/2026, 3:31:20 PM [32m    LOG[39m [38;5;3m[RoutesResolver] [39m[32mAuthController {/auth}:[39m[38;5;3m +0ms[39m
+[32m[Nest] 16158  - [39m07/24/2026, 3:31:20 PM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/auth/register, POST} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 16158  - [39m07/24/2026, 3:31:20 PM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/auth/login, POST} route[39m[38;5;3m +1ms[39m
+[32m[Nest] 16158  - [39m07/24/2026, 3:31:20 PM [32m    LOG[39m [38;5;3m[RoutesResolver] [39m[32mLedgerController {/ledger}:[39m[38;5;3m +0ms[39m
+[32m[Nest] 16158  - [39m07/24/2026, 3:31:20 PM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/ledger/dashboard, GET} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 16158  - [39m07/24/2026, 3:31:20 PM [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/ledger/action, POST} route[39m[38;5;3m +0ms[39m
+[32m[Nest] 16158  - [39m07/24/2026, 3:31:20 PM [32m    LOG[39m [38;5;3m[NestApplication] [39m[32mNest application successfully started[39m[38;5;3m +53ms[39m
+UPDATING PROFILE WITH: { height: 0, goalWeight: 0 }
+[31m[Nest] 16158  - [39m07/24/2026, 3:32:47 PM [31m  ERROR[39m [38;5;3m[ExceptionsHandler] [39mPrismaClientValidationError: 
+Invalid `this.prisma.profile.update()` invocation in
+/Users/raman/Desktop/Projects/Journal/apps/api/src/ledger/ledger.service.ts:3090:37
+
+  3087 
+  3088 console.log('UPDATING PROFILE WITH:', updateData);
+  3089 return toJson(
+→ 3090   await this.prisma.profile.update({
+           where: {
+             id: "71a7569f-8b80-4a7f-a27a-054ea273f807"
+           },
+           data: {
+             height: 0,
+             ~~~~~~
+             goalWeight: 0,
+         ?   displayName?: String | NullableStringFieldUpdateOperationsInput | Null,
+         ?   unitsWeight?: String | StringFieldUpdateOperationsInput,
+         ?   unitsCurrency?: String | StringFieldUpdateOperationsInput,
+         ?   goalProtein?: Int | NullableIntFieldUpdateOperationsInput | Null,
+         ?   goalCalories?: Int | NullableIntFieldUpdateOperationsInput | Null,
+         ?   onboarded?: Boolean | BoolFieldUpdateOperationsInput,
+         ?   createdAt?: DateTime | DateTimeFieldUpdateOperationsInput,
+         ?   user?: UserUpdateOneRequiredWithoutProfileNestedInput
+           }
+         })
+
+Unknown argument `height`. Available options are marked with ?.
+    at throwValidationException [90m(/Users/raman/Desktop/Projects/Journal/apps/api/[39mnode_modules/[4m@prisma/client[24m/src/runtime/core/errorRendering/throwValidationException.ts:46:9[90m)[39m
+    at zr.handleRequestError [90m(/Users/raman/Desktop/Projects/Journal/apps/api/[39mnode_modules/[4m@prisma/client[24m/src/runtime/RequestHandler.ts:211:7[90m)[39m
+    at zr.handleAndLogRequestError [90m(/Users/raman/Desktop/Projects/Journal/apps/api/[39mnode_modules/[4m@prisma/client[24m/src/runtime/RequestHandler.ts:183:12[90m)[39m
+    at zr.request [90m(/Users/raman/Desktop/Projects/Journal/apps/api/[39mnode_modules/[4m@prisma/client[24m/src/runtime/RequestHandler.ts:152:12[90m)[39m
+[90m    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)[39m
+    at async a [90m(/Users/raman/Desktop/Projects/Journal/apps/api/[39mnode_modules/[4m@prisma/client[24m/src/runtime/getPrismaClient.ts:963:24[90m)[39m
+    at async LedgerService.action [90m(/Users/raman/Desktop/Projects/Journal/apps/api/[39msrc/ledger/ledger.service.ts:3090:11[90m)[39m
+    at async [90m/Users/raman/Desktop/Projects/Journal/apps/api/[39mnode_modules/[4m@nestjs/core[24m/router/router-execution-context.js:47:62
+    at async [90m/Users/raman/Desktop/Projects/Journal/apps/api/[39mnode_modules/[4m@nestjs/core[24m/router/router-proxy.js:9:17 {
+  clientVersion: [32m'7.8.0'[39m
+}

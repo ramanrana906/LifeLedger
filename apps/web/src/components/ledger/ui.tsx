@@ -181,7 +181,7 @@ export function MiniLegend({ items }: { items: { label: string; color: string }[
   );
 }
 
-export function SkillStageProgress({ stage }: { stage?: string }) {
+export function SkillStageProgress({ stage, onChange }: { stage?: string; onChange?: (newStage: string) => void }) {
   const current = skillStageIndex(stage);
   return (
     <div className="mt-2 max-w-xs">
@@ -190,13 +190,30 @@ export function SkillStageProgress({ stage }: { stage?: string }) {
         <span className="tabular-nums">{current + 1}/5</span>
       </div>
       <div className="grid grid-cols-5 gap-1">
-        {skillStages.map((item, index) => (
-          <span
-            key={item.value}
-            className={`h-1.5 rounded-full transition ${index <= current ? 'bg-brass' : 'bg-rule'}`}
-            title={item.label}
-          />
-        ))}
+        {skillStages.map((item, index) => {
+          const isActive = index <= current;
+          const bgClass = isActive ? 'bg-brass' : 'bg-rule';
+          
+          if (onChange) {
+            return (
+              <button
+                key={item.value}
+                type="button"
+                onClick={() => onChange(item.value)}
+                className={`h-1.5 rounded-full transition hover:scale-105 ${bgClass} ${!isActive && 'hover:bg-brass/50'}`}
+                title={item.label}
+              />
+            );
+          }
+
+          return (
+            <span
+              key={item.value}
+              className={`h-1.5 rounded-full transition ${bgClass}`}
+              title={item.label}
+            />
+          );
+        })}
       </div>
     </div>
   );

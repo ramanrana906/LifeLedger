@@ -10,6 +10,7 @@ import { Modal } from './ui';
 type ActionFn = (type: string, payload?: Row) => Promise<boolean>;
 
 const entityTypeLabels: Record<EntityType, string> = {
+  profile: 'Health Profile',
   goal: 'Linked Goals',
   habit: 'Linked Habits',
   learning_skill: 'Linked Learning Skills',

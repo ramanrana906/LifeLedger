@@ -51,7 +51,7 @@ export function navigateTo(tab: string, options?: string | { healthTab?: string;
   setTimeout(() => document.querySelector<HTMLButtonElement>(`button[data-tab="${tab}"]`)?.click());
 }
 
-export type EntityType = 'goal' | 'habit' | 'routine' | 'routine_step' | 'learning_skill' | 'finance_debt' | 'finance_savings' | 'finance_transaction' | 'journal_entry';
+export type EntityType = 'goal' | 'habit' | 'routine' | 'routine_step' | 'learning_skill' | 'finance_debt' | 'finance_savings' | 'finance_transaction' | 'journal_entry' | 'profile';
 
 export type EntityNavigationTarget = {
   entityType: EntityType;
@@ -69,6 +69,7 @@ const entityNavigationMap: Record<
     options?: { financeTab?: string; learningTab?: string };
   }
 > = {
+  profile: { tab: 'Health' },
   goal: { tab: 'Goals' },
   habit: { tab: 'Habits' },
   routine: { tab: 'Routines' },
@@ -548,12 +549,13 @@ export function routineAppliesNow(anchor?: string | null) {
   if (anchor === 'morning') return hour >= 4 && hour < 12;
   if (anchor === 'afternoon') return hour >= 12 && hour < 17;
   if (anchor === 'evening') return hour >= 17 && hour < 22;
-  if (anchor === 'night') return hour >= 22 || hour < 4;
+  if (anchor === 'custom') return true;
   return true;
 }
 
 export function routineAnchorLabel(anchor?: string | null) {
   if (!anchor || anchor === 'anytime') return 'Anytime';
+  if (anchor === 'custom') return 'Custom time';
   return anchor[0].toUpperCase() + anchor.slice(1);
 }
 

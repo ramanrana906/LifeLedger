@@ -4,6 +4,8 @@ import { authOptions } from '@/lib/auth';
 
 const apiUrl = process.env.AUTH_API_URL ?? 'http://localhost:3001';
 
+// Increase the body size limit for image uploads - no longer needed in App Router
+
 type Params = Promise<{ path: string[] }>;
 
 async function proxy(request: Request, params: Params) {

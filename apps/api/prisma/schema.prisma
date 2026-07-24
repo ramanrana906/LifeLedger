@@ -40,12 +40,17 @@ model User {
   dietLogs               DietLog[]
   workoutLogs            WorkoutLog[]
   sleepLogs              SleepLog[]
+  symptomLogs            SymptomLog[]
+  people                 Person[]
   relationshipCheckins   RelationshipCheckin[]
   importantDates         ImportantDate[]
   skills                 Skill[]
   learningSessions       LearningSession[]
+  flashcards             Flashcard[]
+  learningResources      LearningResource[]
   habits                 Habit[]
   habitCheckins          HabitCheckin[]
+  habitSlips             HabitSlip[]
   routines               Routine[]
   routineSteps           RoutineStep[]
   routineStepCompletions RoutineStepCompletion[]
@@ -70,14 +75,24 @@ model CustomMetric {
 }
 
 model Profile {
-  id            String   @id @db.Uuid
-  displayName   String?  @db.VarChar(255)
-  unitsWeight   String   @default("kg") @db.VarChar(20)
-  unitsCurrency String   @default("$") @db.VarChar(20)
-  goalWeight    Decimal? @db.Decimal(10, 2)
-  onboarded     Boolean  @default(false)
-  createdAt     DateTime @default(now())
-  user          User     @relation(fields: [id], references: [id], onDelete: Cascade)
+  id                String    @id @db.Uuid
+  displayName       String?   @db.VarChar(255)
+  unitsWeight       String    @default("kg") @db.VarChar(20)
+  unitsCurrency     String    @default("$") @db.VarChar(20)
+  goalWeight        Decimal?  @db.Decimal(10, 2)
+  goalProtein       Int?
+  goalCalories      Int?
+  onboarded         Boolean   @default(false)
+  avatarUrl         String?   @db.Text
+  dateOfBirth       DateTime? @db.Date
+  location          String?   @db.VarChar(255)
+  occupation        String?   @db.VarChar(255)
+  height            Decimal?  @db.Decimal(10, 2)
+  startingWeight    Decimal?  @db.Decimal(10, 2)
+  targetSavingsRate Decimal?  @db.Decimal(5, 2)
+  aboutMe           String?
+  createdAt         DateTime  @default(now())
+  user              User      @relation(fields: [id], references: [id], onDelete: Cascade)
 }
 
 model UserStats {
@@ -405,26 +420,55 @@ model SleepLog {
   user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
+model SymptomLog {
+  id        String    @id @default(uuid()) @db.Uuid
+  userId    String    @db.Uuid
+  logDate   DateTime  @default(now()) @db.Date
+  bodyArea  String
+  severity  Int
+  note      String?
+  deletedAt DateTime?
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Person {
+  id               String                @id @default(uuid()) @db.Uuid
+  userId           String                @db.Uuid
+  name             String
+  relationshipType String                @default("Friend")
+  createdAt        DateTime              @default(now())
+  deletedAt        DateTime?
+  user             User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  checkins         RelationshipCheckin[]
+  importantDates   ImportantDate[]
+
+  @@unique([userId, name])
+}
+
 model RelationshipCheckin {
   id         String    @id @default(uuid()) @db.Uuid
   userId     String    @db.Uuid
-  personName String
-  category   String
+  personId   String?   @db.Uuid
+  personName String?
+  category   String?
   weekStart  DateTime  @db.Date
   rating     Int
   note       String?
   deletedAt  DateTime?
   user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  person     Person?   @relation(fields: [personId], references: [id], onDelete: Cascade)
 }
 
 model ImportantDate {
   id         String    @id @default(uuid()) @db.Uuid
   userId     String    @db.Uuid
-  personName String
+  personId   String?   @db.Uuid
+  personName String?
   kind       String
   date       DateTime  @db.Date
   deletedAt  DateTime?
   user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  person     Person?   @relation(fields: [personId], references: [id], onDelete: Cascade)
 }
 
 enum SkillStage {
@@ -436,23 +480,59 @@ enum SkillStage {
 }
 
 model Skill {
-  id         String            @id @default(uuid()) @db.Uuid
-  userId     String            @db.Uuid
+  id         String             @id @default(uuid()) @db.Uuid
+  userId     String             @db.Uuid
   name       String
-  targetDate DateTime?         @db.Date
-  status     SkillStage        @default(DONT_KNOW_HOW)
+  targetDate DateTime?          @db.Date
+  status     SkillStage         @default(DONT_KNOW_HOW)
   deletedAt  DateTime?
-  user       User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user       User               @relation(fields: [userId], references: [id], onDelete: Cascade)
   sessions   LearningSession[]
+  flashcards Flashcard[]
+  resources  LearningResource[]
 }
 
 model LearningSession {
+  id         String    @id @default(uuid()) @db.Uuid
+  userId     String    @db.Uuid
+  skillId    String?   @db.Uuid
+  minutes    Int
+  focusLevel String    @default("Deep Focus")
+  notes      String?
+  logDate    DateTime  @default(now()) @db.Date
+  deletedAt  DateTime?
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  skill      Skill?    @relation(fields: [skillId], references: [id], onDelete: SetNull)
+}
+
+model Flashcard {
+  id             String    @id @default(uuid()) @db.Uuid
+  userId         String    @db.Uuid
+  skillId        String?   @db.Uuid
+  subject        String    @default("General")
+  question       String
+  answer         String
+  easeFactor     Float     @default(2.5)
+  interval       Int       @default(0)
+  timesReviewed  Int       @default(0)
+  nextReviewDate DateTime  @default(now()) @db.Date
+  createdAt      DateTime  @default(now())
+  deletedAt      DateTime?
+  user           User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  skill          Skill?    @relation(fields: [skillId], references: [id], onDelete: SetNull)
+}
+
+model LearningResource {
   id        String    @id @default(uuid()) @db.Uuid
   userId    String    @db.Uuid
   skillId   String?   @db.Uuid
-  minutes   Int
+  title     String
+  type      String
+  url       String?
+  status    String    @default("To Read/Watch")
+  rating    Int       @default(0)
   notes     String?
-  logDate   DateTime  @default(now()) @db.Date
+  createdAt DateTime  @default(now())
   deletedAt DateTime?
   user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   skill     Skill?    @relation(fields: [skillId], references: [id], onDelete: SetNull)
@@ -463,6 +543,8 @@ model Habit {
   userId         String         @db.Uuid
   name           String
   kind           String
+  frequency      String         @default("daily")
+  frequencyCount Int            @default(7)
   whyThisMatters String?
   currentStreak  Int            @default(0)
   longestStreak  Int            @default(0)
@@ -472,6 +554,7 @@ model Habit {
   deletedAt      DateTime?
   user           User           @relation(fields: [userId], references: [id], onDelete: Cascade)
   checkins       HabitCheckin[]
+  slips          HabitSlip[]
 }
 
 model HabitCheckin {
@@ -485,6 +568,20 @@ model HabitCheckin {
 
   @@unique([habitId, checkinDate])
   @@index([userId, checkinDate])
+}
+
+model HabitSlip {
+  id          String   @id @default(uuid()) @db.Uuid
+  userId      String   @db.Uuid
+  habitId     String   @db.Uuid
+  slipDate    DateTime @db.Date
+  triggerTags String[]
+  note        String?
+  createdAt   DateTime @default(now())
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  habit       Habit    @relation(fields: [habitId], references: [id], onDelete: Cascade)
+
+  @@index([userId, slipDate])
 }
 
 enum RoutineStepType {

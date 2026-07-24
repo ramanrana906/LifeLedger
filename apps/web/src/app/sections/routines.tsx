@@ -5,6 +5,7 @@ import { Dashboard, Row } from '@/lib/ledger/types';
 import { colors } from '@/lib/ledger/constants';
 import { EntityType, LinkableEntity, entityDomId, focusEntityInView, listenForEntityNavigation, routineAnchorLabel, routineStepTypeLabel, routineStepTargetLabel, ask } from '@/lib/ledger/utils';
 import { Parchment, Stat, Field, Select, ProgressBar, Empty } from '@/components/ledger/ui';
+import { NavIcon } from '@/components/ledger/nav-icon';
 import { EntityConnections } from '@/components/ledger/entity-connections';
 import { LinkToPicker } from '@/components/ledger/link-to-picker';
 
@@ -105,7 +106,7 @@ export function Routines({ data, action }: { data: Dashboard; action: ActionFn }
             <option value="morning">Morning</option>
             <option value="afternoon">Afternoon</option>
             <option value="evening">Evening</option>
-            <option value="night">Night</option>
+            <option value="custom">Custom time</option>
           </Select>
           <label className="flex min-h-11 items-center gap-2 rounded-xl border bg-card px-3 text-sm font-medium text-ink">
             <input type="checkbox" checked={routine.protected} onChange={(event) => setRoutine({ ...routine, protected: event.target.checked })} />
@@ -136,7 +137,10 @@ export function Routines({ data, action }: { data: Dashboard; action: ActionFn }
                       {routineAnchorLabel(item.timeAnchor)} · {(item.steps ?? []).length} steps
                     </div>
                   </div>
-                  <span className="rounded-full border px-2 py-1 text-xs tabular-nums text-brass">{status?.streak ?? 0}d</span>
+                  <span className="flex items-center gap-1 rounded-full border px-2 py-1 text-xs font-semibold tabular-nums text-brass">
+                    <NavIcon name="flame" className="h-3 w-3" />
+                    {status?.streak ?? 0}d
+                  </span>
                 </div>
                 <ProgressBar value={Number(status?.completionPct ?? 0)} max={100} tone={status?.completionPct === 100 ? colors.moss : colors.brass} />
               </button>
@@ -158,7 +162,7 @@ export function Routines({ data, action }: { data: Dashboard; action: ActionFn }
                 onClick={() => {
                   const name = ask('Routine name', selectedRoutine.name);
                   if (!name) return;
-                  const timeAnchor = ask('Time anchor: morning, afternoon, evening, night, or blank', selectedRoutine.timeAnchor ?? '');
+                  const timeAnchor = ask('Time anchor: morning, afternoon, evening, custom, or blank', selectedRoutine.timeAnchor ?? '');
                   action('routine.update', {
                     id: selectedRoutine.id,
                     name,
@@ -237,7 +241,13 @@ export function Routines({ data, action }: { data: Dashboard; action: ActionFn }
                 </option>
               ))}
             </Select>
-            <Field value={step.stepName} onChange={(event) => setStep({ ...step, stepName: event.target.value })} placeholder="Step label" />
+            {step.stepType === 'standalone' ? (
+              <Field value={step.stepName} onChange={(event) => setStep({ ...step, stepName: event.target.value })} placeholder="Step label" />
+            ) : (
+              <div className="flex items-center px-3 py-2 text-sm font-medium text-ink bg-background rounded-xl border border-transparent">
+                {defaultRoutineStepName(step.stepType)}
+              </div>
+            )}
             {stepAllowedTypes.length ? (
               <button
                 type="button"

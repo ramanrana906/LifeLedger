@@ -17,7 +17,10 @@ import { Relationships } from './sections/relationships';
 import { Learning } from './sections/learning';
 import { Habits } from './sections/habits';
 import { Routines } from './sections/routines';
-import { Review, CycleSettings } from './sections/review';
+import { Review } from './sections/review';
+import { Settings } from './sections/settings';
+import { Profile } from './sections/profile';
+
 
 export function LedgerDashboard({ name }: { name?: string | null }) {
   const [data, setData] = useState<Dashboard | null>(null);
@@ -195,17 +198,7 @@ export function LedgerDashboard({ name }: { name?: string | null }) {
           ))}
         </nav>
 
-        {/* Profile Footer */}
-        <div className="shrink-0 border-t border-white/10 bg-slate-900/60 p-4">
-          <div className="mb-3 flex items-center gap-3">
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#4F46E5] text-sm font-semibold text-white ring-2 ring-white/10">{initials}</div>
-            <div className="min-w-0">
-              <div className="truncate text-sm font-medium text-white">{name ?? 'Life Ledger'}</div>
-              <div className="text-xs text-slate-400">Signed in</div>
-            </div>
-          </div>
-          <SignOutButton />
-        </div>
+
       </aside>
 
       <main className="min-w-0 flex-1">
@@ -231,17 +224,7 @@ export function LedgerDashboard({ name }: { name?: string | null }) {
               <input className="min-w-0 flex-1 bg-transparent outline-none placeholder:text-[var(--muted)]" placeholder="Search goals, notes, habits..." aria-label="Search" />
             </label>
 
-            <div className="hidden min-w-48 rounded-2xl border bg-card px-4 py-3 shadow-sm xl:block">
-              <div className="mb-2 flex items-center justify-between text-xs text-[var(--muted)]">
-                <span>Level {data?.stats?.level ?? 1}</span>
-                <span>
-                  {xp}/{xpToNext} XP
-                </span>
-              </div>
-              <div className="h-2 overflow-hidden rounded-full bg-rule">
-                <div className="h-full rounded-full bg-brass transition-all" style={{ width: `${xpPct}%` }} />
-              </div>
-            </div>
+
 
             <div className="ml-auto flex items-center gap-2">
               <button
@@ -253,12 +236,16 @@ export function LedgerDashboard({ name }: { name?: string | null }) {
               </button>
               <button
                 type="button"
-                className="hidden min-h-11 items-center gap-2 rounded-2xl border border-[#8B5CF6]/25 bg-gradient-to-r from-[#8B5CF6] to-[#6366F1] px-4 text-sm font-semibold text-white shadow-[0_12px_28px_rgba(99,102,241,0.24)] transition hover:scale-[1.01] md:inline-flex"
+                onClick={() => setActive('Profile')}
+                className="flex h-11 w-11 overflow-hidden items-center justify-center rounded-full bg-brass text-sm font-semibold text-white shadow-sm transition hover:scale-[1.02] active:scale-95"
+                title="View Profile"
               >
-                <NavIcon name="sparkles" className="h-4 w-4" />
-                AI Assistant
+                {data?.profile?.avatarUrl ? (
+                  <img src={data.profile.avatarUrl} alt="Avatar" className="h-full w-full object-cover" />
+                ) : (
+                  initials
+                )}
               </button>
-              <div className="flex h-11 w-11 items-center justify-center rounded-full bg-brass text-sm font-semibold text-white shadow-sm">{initials}</div>
             </div>
 
             <div className="flex w-full items-center gap-3 text-sm text-[var(--muted)] lg:hidden">
@@ -287,7 +274,8 @@ export function LedgerDashboard({ name }: { name?: string | null }) {
               {active === 'Habits' && <Habits data={data} action={action} />}
               {active === 'Routines' && <Routines data={data} action={action} />}
               {active === 'Review' && <Review key={data.weeklyReflection?.id ?? data.weekStart} data={data} action={action} />}
-              {active === 'Settings' && <CycleSettings key={data.focusCycle?.id ?? 'cycle'} data={data} action={action} />}
+              {active === 'Profile' && <Profile data={data} action={action} />}
+              {active === 'Settings' && <Settings key={data.focusCycle?.id ?? 'cycle'} data={data} action={action} />}
             </>
           )}
         </div>

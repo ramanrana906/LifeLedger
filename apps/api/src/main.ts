@@ -3,7 +3,16 @@ import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+  // Disable NestJS's built-in body parser (defaults to 100kb limit)
+  // so we can configure our own with a higher limit for image uploads
+  const app = await NestFactory.create(AppModule, {
+    bodyParser: false,
+  });
+
+  // Register custom body parsers with 50mb limit
+  const express = await import('express');
+  app.use(express.json({ limit: '50mb' }));
+  app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
   const allowedOrigins = [
     process.env.FRONTEND_URL,
